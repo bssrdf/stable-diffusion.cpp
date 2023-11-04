@@ -17,9 +17,7 @@
 #include "ggml/ggml-alloc.h"
 #include "ggml/ggml-backend.h"
 
-// #define GGML_USE_CUBLAS
-
-#ifdef GGML_USE_CUBLAS
+#ifdef SD_USE_CUBLAS
 #include "ggml-cuda.h"
 #endif
 
@@ -28,6 +26,12 @@
 #include "stable-diffusion.h"
 
 #define EPS 1e-5f
+
+#ifdef SD_DUMP_TENSORS
+static std::string tensors_path = "C:/proyects/output-tensors/";
+
+static std::string cuda_func = "-nv-full";
+#endif
 
 static SDLogLevel log_level = SDLogLevel::INFO;
 
@@ -203,10 +207,22 @@ ggml_tensor* load_tensor_from_file(ggml_context* ctx, const std::string& file_pa
     return tensor;
 }
 
-void save_tensor_to_file(const std::string& file_path, ggml_tensor* tensor, const std::string & name) {
-    std::ofstream file(file_path, std::ios::binary);
+#ifdef SD_DUMP_TENSORS
+void save_tensor_to_file(const std::string& file_name, ggml_tensor* tensor, const std::string & name) {
+    std::string file_name_ = file_name;
+    std::string name_ = name;
+#ifdef SD_USE_CUBLAS
+
+    file_name_ += cuda_func + "-cuda.tensor";
+    name_ += cuda_func + " CUDA";
+#else
+    file_name_ += "-cpu.tensor";
+    name_ += " CPU";
+#endif
+    std::ofstream file(tensors_path + file_name_, std::ios::binary);
+    printf("saved file: %s\n", (tensors_path + file_name_).c_str());
     file.write(reinterpret_cast<char*>(&tensor->n_dims), sizeof(tensor->n_dims));
-    int len = (int)name.size();
+    int len = (int)name_.size();
     file.write(reinterpret_cast<char*>(&len), sizeof(len));
     int ttype = (int)tensor->type;
     file.write(reinterpret_cast<char*>(&ttype), sizeof(ttype));
@@ -214,24 +230,22 @@ void save_tensor_to_file(const std::string& file_path, ggml_tensor* tensor, cons
         int ne_ = (int) tensor->ne[i];
         file.write(reinterpret_cast<char*>(&ne_), sizeof(ne_));
     }
-    file.write(&name[0], len);
-    file.write(reinterpret_cast<char*>(tensor->data), ggml_nbytes(tensor));
+    file.write(&name_[0], len);
+    char* data = nullptr;
+    file.write((char*)tensor->data, ggml_nbytes(tensor));
     file.close();
 }
+#endif
 
 void copy_ggml_tensor(
     struct ggml_tensor* dst,
-    const struct ggml_tensor* src,bool draft) {
+    const struct ggml_tensor* src) {
     dst->nb[0] = src->nb[0];
     dst->nb[1] = src->nb[1];
     dst->nb[2] = src->nb[2];
     dst->nb[3] = src->nb[3];
 
-    if(!draft && !ggml_backend_is_cpu(ggml_get_backend(src))) {
-        ggml_backend_tensor_get(src, ((char*)dst->data), 0, ggml_nbytes(src));
-    } else {
-        memcpy(((char*)dst->data), ((char*)src->data), ggml_nbytes(dst));
-    }
+    memcpy(((char*)dst->data), ((char*)src->data), ggml_nbytes(dst));
 }
 
 // Ref: https://github.com/CompVis/stable-diffusion/blob/main/ldm/modules/diffusionmodules/util.py#L151
@@ -773,13 +787,14 @@ struct CLIPTextModel {
 
     bool initialize(ggml_type wtype_) {
         bool gpu = false;
-#ifdef GGML_USE_CUBLAS
+#ifdef SD_USE_CUBLAS
         if(gpu) {
-            LOG_DEBUG("Using cuda backend");
+            LOG_DEBUG("Using CUDA backend - clip");
             backend_clip = ggml_backend_cuda_init();
         }
 #endif
         if(!backend_clip) {
+             LOG_DEBUG("Using CPU backend - clip");
             backend_clip = ggml_backend_cpu_init();
         }
         wtype = wtype_;
@@ -959,11 +974,7 @@ struct CLIPTextModel {
         if (ggml_backend_is_cpu(backend_clip)) {
             ggml_backend_cpu_set_n_threads(backend_clip, n_threads);
         }
-#ifdef GGML_USE_METAL
-        if (ggml_backend_is_metal(backend_clip)) {
-            ggml_backend_metal_set_n_cb(backend_clip, n_threads);
-        }
-#endif
+
         ggml_backend_graph_compute(backend_clip, gf);
 
 #ifdef GGML_PERF
@@ -1738,9 +1749,10 @@ struct UNetModel {
     struct ggml_allocr * allocr_compute = NULL;
     size_t compute_memory_buffer_size = -1;
 
-    int memory_buffer_size = 0;
+    size_t memory_buffer_size = 0;
     ggml_type wtype;
-    ggml_backend_t backend_unet;
+    ggml_backend_t backend_unet = NULL;
+    bool use_gpu = false;
 
     UNetModel(ModelType model_type = SD1) {
         if (model_type == SD2) {
@@ -1947,13 +1959,17 @@ struct UNetModel {
     }
 
     bool initialize(ggml_type wtype_) {
-#ifdef GGML_USE_CUBLAS
-        LOG_DEBUG("Using cuda backend");
-        backend_unet = ggml_backend_cuda_init();
-#else
-        LOG_DEBUG("Using cpu backend");
-        backend_unet = ggml_backend_cpu_init();
+#ifdef SD_USE_CUBLAS
+        if(use_gpu) {
+            LOG_DEBUG("Using CUDA backend - unet");
+            backend_unet = ggml_backend_cuda_init();
+        }
 #endif
+        if(!backend_unet) {
+            LOG_DEBUG("Using CPU backend - unet");
+            backend_unet = ggml_backend_cpu_init();
+        }
+
         wtype = wtype_;
         memory_buffer_size = 1 * 1024 * 1024;  // 1 MB, for padding
         memory_buffer_size += calculate_mem_size();
@@ -2138,7 +2154,7 @@ struct UNetModel {
 
         // input block 0
         struct ggml_tensor* h = ggml_conv_2d(ctx, input_block_0_w, x, 1, 1, 1, 1, 1, 1);  // [N, model_channels, h, w]
-
+        
         h = ggml_add(ctx,
                      h,
                      ggml_repeat(ctx,
@@ -2205,6 +2221,7 @@ struct UNetModel {
                                  h));
         // silu
         h = ggml_silu_inplace(ctx, h);
+
         // conv2d
         h = ggml_conv_2d(ctx, out_2_w, h, 1, 1, 1, 1, 1, 1);
         h = ggml_add(ctx,
@@ -2215,7 +2232,7 @@ struct UNetModel {
         return h;
     }
 
-    struct ggml_cgraph * build_graph(struct ggml_allocr * allocr, struct ggml_tensor* x,
+    struct ggml_cgraph * build_graph(struct ggml_tensor* x,
                                 struct ggml_tensor* timesteps,
                                 struct ggml_tensor* context,
                                 struct ggml_tensor* t_emb = NULL) {
@@ -2240,8 +2257,8 @@ struct UNetModel {
         struct ggml_tensor* t_emb_t = NULL;
 
         // it's performing a compute, check if backend isn't cpu
-        if(allocr_compute != NULL && !ggml_backend_is_cpu(backend_unet)) {
-            // if it's gpu backend create pointers of device (duplicate tensors and alloc it in device)
+        if(!ggml_backend_is_cpu(backend_unet)) {
+            // pass input tensors to gpu memory
             x_t = ggml_dup_tensor(ctx0, x);
             ggml_allocr_alloc(allocr_compute, x_t);
             if(timesteps != NULL) {
@@ -2270,7 +2287,7 @@ struct UNetModel {
         }
 
         struct ggml_tensor* out = forward(ctx0, x_t, timesteps_t, context_t, t_emb_t);
-
+        
         ggml_build_forward_expand(gf, out);
         ggml_free(ctx0);
 
@@ -2286,7 +2303,7 @@ struct UNetModel {
             size_t align = ggml_backend_get_alignment(backend_unet);
             allocr_compute = ggml_allocr_new_measure(align);
 
-            struct ggml_cgraph * gf = build_graph(allocr_compute, x, NULL, context, t_emb);
+            struct ggml_cgraph * gf = build_graph(x, NULL, context, t_emb);
             // compute the required memory
             compute_memory_buffer_size = ggml_allocr_alloc_graph(allocr_compute, gf);
 
@@ -2303,22 +2320,17 @@ struct UNetModel {
                                 struct ggml_tensor* timesteps,
                                 struct ggml_tensor* context,
                                 struct ggml_tensor* t_emb = NULL) {
-        // compute
-        struct ggml_cgraph * gf = build_graph(allocr_compute, x, timesteps, context, t_emb);
 
         ggml_allocr_reset(allocr_compute);
+
+        // compute
+        struct ggml_cgraph * gf = build_graph(x, timesteps, context, t_emb);
 
         ggml_allocr_alloc_graph(allocr_compute, gf);
 
         if (ggml_backend_is_cpu(backend_unet)) {
             ggml_backend_cpu_set_n_threads(backend_unet, n_threads);
         }
-
-#ifdef GGML_USE_METAL
-        if (ggml_backend_is_metal(backend_unet)) {
-            ggml_backend_metal_set_n_cb(backend_unet, n_threads);
-        }
-#endif
 
         ggml_backend_graph_compute(backend_unet, gf);
 
@@ -3164,8 +3176,6 @@ struct AutoEncoderKL {
         struct ggml_cgraph  * gf = ggml_new_graph(ctx0);
 
         struct ggml_tensor* out = decode_graph ? decode(ctx0, z) : encode(ctx0, z);
-        
-        ggml_set_name(out, "vae result");
 
         ggml_build_forward_expand(gf, out);
         ggml_free(ctx0);
@@ -3182,11 +3192,7 @@ struct AutoEncoderKL {
         if (ggml_backend_is_cpu(backend)) {
             ggml_backend_cpu_set_n_threads(backend, n_threads);
         }
-#ifdef GGML_USE_METAL
-        if (ggml_backend_is_metal(backend)) {
-            ggml_backend_metal_set_n_cb(backend, n_threads);
-        }
-#endif
+
         ggml_backend_graph_compute(backend, gf);
 
 #ifdef GGML_PERF
@@ -3549,9 +3555,6 @@ class StableDiffusionGGML {
 //                 }
 
 //                 if (ggml_backend_is_cpu  (backend)
-// #ifdef GGML_USE_METAL
-//                 || ggml_backend_is_metal(backend)
-// #endif
 //                 ) {
 //                     // for the CPU and Metal backend, we can read directly into the tensor
 //                     file_vae.read(reinterpret_cast<char *>(tensor->data), num_bytes);
@@ -3650,9 +3653,6 @@ class StableDiffusionGGML {
                 }
 
                 if (ggml_backend_is_cpu  (ggml_get_backend(tensor))
-#ifdef GGML_USE_METAL
-                || ggml_backend_is_metal(ggml_get_backend(tensor))
-#endif
                 ) {
                     // for the CPU and Metal backend, we can read directly into the tensor
                     file.read(reinterpret_cast<char *>(tensor->data), num_bytes);
@@ -3791,7 +3791,7 @@ class StableDiffusionGGML {
         return result < -1;
     }
 
-    ggml_tensor* get_learned_condition(ggml_context* draft_ctx, const std::string& text) {
+    ggml_tensor* get_learned_condition(ggml_context* draft_ctx, const std::string& text, bool uc) {
         auto tokens_and_weights = cond_stage_model.tokenize(text,
                                                             cond_stage_model.text_model.max_position_embeddings,
                                                             true);
@@ -3800,13 +3800,15 @@ class StableDiffusionGGML {
         cond_stage_model.text_model.begin(tokens.size());
         int64_t t0 = ggml_time_ms();
         struct ggml_tensor* hidden_states = cond_stage_model.text_model.compute(n_threads, tokens);
+        std::string type = uc ? "uncond": "cond";
+        hidden_states = ggml_fallback_tensor(draft_ctx, hidden_states, cond_stage_model.text_model.backend_clip);
+#ifdef SD_DUMP_TENSORS
+        save_tensor_to_file("output-clip-" + type, hidden_states, "CLIP Model output");
+#endif
         int64_t t1 = ggml_time_ms();
         LOG_DEBUG("computing condition graph completed, taking %i ms", t1 - t0);
         ggml_tensor* result = ggml_dup_tensor(draft_ctx, hidden_states);  // [N, n_token, hidden_size]
-
-        hidden_states = ggml_fallback_tensor(draft_ctx, hidden_states, cond_stage_model.text_model.backend_clip);
-
-        // print_ggml_tensor(hidden_states);
+        //print_ggml_tensor(hidden_states);
         {
             int64_t nelements = ggml_nelements(hidden_states);
             float original_mean = 0.f;
@@ -3851,13 +3853,12 @@ class StableDiffusionGGML {
         // x_t = load_tensor_from_file(draft_ctx, "./rand0.bin");
         // print_ggml_tensor(x_t);
         struct ggml_tensor* x = ggml_dup_tensor(draft_ctx, x_t);
-        copy_ggml_tensor(x, x_t, true);
+        copy_ggml_tensor(x, x_t);
 
         struct ggml_tensor* noised_input = ggml_dup_tensor(draft_ctx, x_t);
         struct ggml_tensor* context = ggml_dup_tensor(draft_ctx, c);
         struct ggml_tensor* timesteps = ggml_new_tensor_1d(draft_ctx, GGML_TYPE_F32, 1);                           // [N, ]
         struct ggml_tensor* t_emb = new_timestep_embedding(draft_ctx, NULL, timesteps, diffusion_model.model_channels);  // [N, model_channels]
-
         diffusion_model.begin(noised_input, context, t_emb);
 
         // x = x * sigmas[0]
@@ -3897,7 +3898,7 @@ class StableDiffusionGGML {
             ggml_set_f32(timesteps, t);
             set_timestep_embedding(timesteps, t_emb, diffusion_model.model_channels);
 
-            copy_ggml_tensor(noised_input, input, true);
+            copy_ggml_tensor(noised_input, input);
             // noised_input = noised_input * c_in
             {
                 float* vec = (float*)noised_input->data;
@@ -3910,16 +3911,21 @@ class StableDiffusionGGML {
 
             if (cfg_scale != 1.0 && uc != NULL) {
                 // uncond
-                copy_ggml_tensor(context, uc, true);
+                copy_ggml_tensor(context, uc);
                 out = diffusion_model.compute(n_threads, noised_input, NULL, context, t_emb);
-                copy_ggml_tensor(out_uncond, out, false);
+                out = ggml_fallback_tensor(draft_ctx, out, diffusion_model.backend_unet);
+#ifdef SD_DUMP_TENSORS
+                save_tensor_to_file("output-unet-uc", out, "UNET negative prompt output");
+#endif
+                copy_ggml_tensor(out_uncond, out);
 
                 // cond
-                copy_ggml_tensor(context, c, true);
+                copy_ggml_tensor(context, c);
                 out = diffusion_model.compute(n_threads, noised_input, NULL, context, t_emb);
-
                 out = ggml_fallback_tensor(draft_ctx, out, diffusion_model.backend_unet);
-
+#ifdef SD_DUMP_TENSORS
+                save_tensor_to_file("output-unet-c", out, "UNET prompt output");
+#endif
                 out_cond = out;
 
                 // out_uncond + cfg_scale * (out_cond - out_uncond)
@@ -3934,7 +3940,7 @@ class StableDiffusionGGML {
                 }
             } else {
                 // cond
-                copy_ggml_tensor(context, c, true);
+                copy_ggml_tensor(context, c);
                 out = diffusion_model.compute(n_threads, noised_input, NULL, context, t_emb);
                 out = ggml_fallback_tensor(draft_ctx, out, diffusion_model.backend_unet);
             }
@@ -4388,11 +4394,14 @@ class StableDiffusionGGML {
 
         int64_t t0 = ggml_time_ms();
         struct ggml_tensor* res = first_stage_model.compute(allocr, backend, n_threads, x, decode);
+#ifdef SD_DUMP_TENSORS
+        save_tensor_to_file("output-autoencoder", res, "AutoEncoder output");
+#endif
         ggml_allocr_free(allocr);
         int64_t t1 = ggml_time_ms();
         LOG_DEBUG("computing vae [mode: %s] graph completed, taking %.2fs", decode ? "DECODE" : "ENCODE", (t1 - t0) * 1.0f / 1000);
         result = ggml_dup_tensor(draft_ctx, res);
-        copy_ggml_tensor(result, res, true);
+        copy_ggml_tensor(result, res);
         return result;
     }
 };
@@ -4441,10 +4450,10 @@ std::vector<uint8_t> StableDiffusion::txt2img(const std::string& prompt,
     sd->rng->manual_seed(seed);
 
     int64_t t0 = ggml_time_ms();
-    ggml_tensor* c = sd->get_learned_condition(ctx, prompt);
+    ggml_tensor* c = sd->get_learned_condition(ctx, prompt, false);
     struct ggml_tensor* uc = NULL;
     if (cfg_scale != 1.0) {
-        uc = sd->get_learned_condition(ctx, negative_prompt);
+        uc = sd->get_learned_condition(ctx, negative_prompt, true);
     }
     int64_t t1 = ggml_time_ms();
     LOG_INFO("get_learned_condition completed, taking %i ms", t1 - t0);
@@ -4542,10 +4551,10 @@ std::vector<uint8_t> StableDiffusion::img2img(const std::vector<uint8_t>& init_i
     int64_t t1 = ggml_time_ms();
     LOG_INFO("encode_first_stage completed, taking %.2fs", (t1 - t0) * 1.0f / 1000);
 
-    ggml_tensor* c = sd->get_learned_condition(ctx, prompt);
+    ggml_tensor* c = sd->get_learned_condition(ctx, prompt, false);
     struct ggml_tensor* uc = NULL;
     if (cfg_scale != 1.0) {
-        uc = sd->get_learned_condition(ctx, negative_prompt);
+        uc = sd->get_learned_condition(ctx, negative_prompt, true);
     }
     int64_t t2 = ggml_time_ms();
     LOG_INFO("get_learned_condition completed, taking %i ms", t2 - t1);
