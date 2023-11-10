@@ -6,3 +6,4 @@ test/
 *.bat
 *.bin
 *.exe
+*.gguf
