@@ -823,6 +823,16 @@ struct CLIPTextModel {
             ggml_free(ctx_clip);
             ctx_clip = NULL;
         }
+
+        if (buffer_params_clip != NULL) {
+            ggml_backend_buffer_free(buffer_params_clip);
+            buffer_params_clip = NULL;
+        }
+
+        if(backend_clip != NULL) {
+            ggml_backend_free(backend_clip);
+            backend_clip = NULL;
+        }
     }
 
     size_t calculate_mem_size() {
@@ -2027,6 +2037,16 @@ struct UNetModel {
             ggml_free(ctx_unet);
             ctx_unet = NULL;
         }
+
+        if (buffer_params_unet != NULL) {
+            ggml_backend_buffer_free(buffer_params_unet);
+            buffer_params_unet = NULL;
+        }
+
+        if(backend_unet != NULL) {
+            ggml_backend_free(backend_unet);
+            backend_unet = NULL;
+        }
     }
 
     void alloc_params() {
@@ -3087,6 +3107,7 @@ struct AutoEncoderKL {
     ggml_backend_buffer_t buffer_vae;
     int memory_buffer_size = 0;
     ggml_type wtype;
+    bool speed_up;
 
     AutoEncoderKL(bool decode_only = false)
         : decode_only(decode_only) {
@@ -3164,7 +3185,8 @@ struct AutoEncoderKL {
         }
     }
 
-    void alloc_params() {
+    void alloc_params(bool speed_up_) {
+        speed_up = speed_up_;
         ggml_allocr * alloc = ggml_allocr_new_from_buffer(buffer_vae);
 
         if (!decode_only) {
@@ -3202,6 +3224,9 @@ struct AutoEncoderKL {
 
         // post_quant_conv
         auto h = ggml_conv_2d(ctx, post_quant_conv_w, z, 1, 1, 0, 0, 1, 1);
+        if(speed_up) {
+            ggml_set_name(h, "fallback");
+        }
         h = ggml_add(ctx,
                      h,
                      ggml_repeat(ctx,
@@ -3391,7 +3416,7 @@ class StableDiffusionGGML {
 
     ggml_backend_t backend = NULL;
     bool vae_decode_only = false;
-    bool free_params_immediately = false;
+    bool free_params_immediately = true; // speed up VAE Decoder
 
     std::shared_ptr<RNG> rng = std::make_shared<STDDefaultRNG>();
     int n_threads = -1;
@@ -3527,7 +3552,7 @@ class StableDiffusionGGML {
             diffusion_model.map_by_name(tensors, "unet.");
 
             // firest_stage_model(AutoEncoderKL)
-            first_stage_model.alloc_params();
+            first_stage_model.alloc_params(free_params_immediately);
             first_stage_model.map_by_name(tensors, "vae.");
         }
 
@@ -3802,7 +3827,6 @@ class StableDiffusionGGML {
                         float cfg_scale,
                         sd_sample_method method,
                         const std::vector<float>& sigmas) {
-        
         size_t steps = sigmas.size() - 1;
         // x_t = load_tensor_from_file(draft_ctx, "./rand0.bin");
         // print_ggml_tensor(x_t);
