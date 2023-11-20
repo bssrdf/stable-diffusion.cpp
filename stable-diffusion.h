@@ -48,8 +48,8 @@ class StableDiffusion {
                     sd_rng_type rng_type = STD_DEFAULT_RNG);
     bool load_from_file(const std::string& file_path, sd_sample_schedule d = DEFAULT);
     std::vector<uint8_t> txt2img(
-        const std::string& prompt,
-        const std::string& negative_prompt,
+        std::string& prompt,
+        std::string& negative_prompt,
         float cfg_scale,
         int width,
         int height,
