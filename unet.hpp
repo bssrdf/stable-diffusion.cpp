@@ -482,6 +482,13 @@ struct UNetModel : public GGMLModule {
     int context_dim                        = 768;   // 1024 for VERSION_2_x, 2048 for VERSION_XL
     int adm_in_channels                    = 2816;  // only for VERSION_XL
 
+    bool use_freeu                         = false;
+    float freeu_b1                         = 1.5f;
+    float freeu_b2                         = 1.6f;
+    float freeu_s1                         = 0.9;
+    float freeu_s2                         = 0.2;
+     
+
     // network params
     struct ggml_tensor* time_embed_0_w;  // [time_embed_dim, model_channels]
     struct ggml_tensor* time_embed_0_b;  // [time_embed_dim, ]
@@ -528,6 +535,11 @@ struct UNetModel : public GGMLModule {
             context_dim       = 1024;
             num_head_channels = 64;
             num_heads         = -1;
+            freeu_b1          = 1.4f;
+            freeu_b2          = 1.6f;
+            freeu_s1          = 0.9;
+            freeu_s2          = 0.2;
+
         } else if (version == VERSION_XL) {
             context_dim           = 2048;
             attention_resolutions = {4, 2};
@@ -535,6 +547,10 @@ struct UNetModel : public GGMLModule {
             transformer_depth     = {1, 2, 10};
             num_head_channels     = 64;
             num_heads             = -1;
+            freeu_b1              = 1.3f;
+            freeu_b2              = 1.4f;
+            freeu_s1              = 0.9;
+            freeu_s2              = 0.2;
         }
         // set up hparams of blocks
 
@@ -747,7 +763,8 @@ struct UNetModel : public GGMLModule {
         return num_tensors;
     }
 
-    void init_params() {
+    void init_params(const bool freeu) {
+        use_freeu          = freeu;
         ggml_allocr* alloc = ggml_allocr_new_from_buffer(params_buffer);
         time_embed_0_w     = ggml_new_tensor_2d(params_ctx, wtype, model_channels, time_embed_dim);
         time_embed_0_b     = ggml_new_tensor_1d(params_ctx, GGML_TYPE_F32, time_embed_dim);
@@ -954,6 +971,39 @@ struct UNetModel : public GGMLModule {
             for (int j = 0; j < num_res_blocks + 1; j++) {
                 auto h_skip = hs.back();
                 hs.pop_back();
+                // printf("i, j = (%d, %d), (%d) \n ", i, j, hs.size());
+                // printf("i, j = (%d, %d), B (%d, %d, %d, %d) \n ", i, j, h_skip->ne[0], h_skip->ne[1], h_skip->ne[2], h_skip->ne[3]);
+                // printf("i, j = (%d, %d), B (%d, %d, %d, %d) \n ", i, j, h->ne[0], h->ne[1], h->ne[2], h->ne[3]);
+                // struct ggml_tensor *h_skip1 = nullptr;
+                // struct ggml_tensor *h1 = nullptr;  
+                if(use_freeu){
+                    if(h->ne[2] == 1280){
+                        // printf("1280: (%d, %d, %d, %d) \n ", h->ne[0], h->ne[1], h->ne[2], h->ne[3]);
+                        h_skip = ggml_fft_filter(ctx0, h_skip, nullptr);
+                        h_skip->op_params[0] = 1;                        
+                        memcpy(h_skip->op_params+1,  &freeu_s1, sizeof(float));
+                        h = ggml_freeu_backbone(ctx0, h, nullptr);
+                        h->op_params[0] = 2;                        
+                        memcpy(h->op_params+1,  &freeu_b1, sizeof(float));                        
+                    }
+                    if(h->ne[2] == 640){
+                        // printf("640: (%d, %d, %d, %d) \n ", h->ne[0], h->ne[1], h->ne[2], h->ne[3]);
+                        h_skip = ggml_fft_filter(ctx0, h_skip, nullptr);
+                        h_skip->op_params[0] = 1;                        
+                        memcpy(h_skip->op_params+1,  &freeu_s2, sizeof(float));
+                        h = ggml_freeu_backbone(ctx0, h, nullptr);
+                        h->op_params[0] = 2;                        
+                        memcpy(h->op_params+1,  &freeu_b2, sizeof(float));                        
+                    }
+                }
+                // if (h_skip1 != nullptr)
+                //     printf("i, j = (%d, %d), A (%d, %d, %d, %d) \n ", i, j, h_skip1->ne[0], h_skip1->ne[1], h_skip1->ne[2], h_skip1->ne[3]);
+                // if (h1 != nullptr)    
+                //     printf("i, j = (%d, %d), A (%d, %d, %d, %d) \n ", i, j, h1->ne[0], h1->ne[1], h1->ne[2], h1->ne[3]);
+                // if (use_freeu && (h->ne[2] == 1280 || h->ne[2] == 640)){
+                //     h_skip = h_skip1;
+                //     h = h1;
+                // }
 
                 h = ggml_concat(ctx0, h, h_skip);
                 h = output_res_blocks[i][j].forward(ctx0, h, emb);

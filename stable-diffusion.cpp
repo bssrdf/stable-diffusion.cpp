@@ -108,6 +108,7 @@ public:
                         const std::string& vae_path,
                         const std::string& taesd_path,
                         bool vae_tiling,
+                        bool freeu,
                         ggml_type wtype,
                         schedule_t schedule) {
         this->use_tiny_autoencoder = taesd_path.size() > 0;
@@ -196,6 +197,8 @@ public:
         }
 
         LOG_DEBUG("preparing memory for the weights");
+        if(freeu)
+            LOG_INFO("using FREEU mode");
         // prepare memory for the weights
         {
             // cond_stage_model(FrozenCLIPEmbedder)
@@ -203,7 +206,7 @@ public:
             cond_stage_model.map_by_name(tensors, "cond_stage_model.");
 
             // diffusion_model(UNetModel)
-            diffusion_model.init_params();
+            diffusion_model.init_params(freeu);
             diffusion_model.map_by_name(tensors, "model.diffusion_model.");
 
             if (!use_tiny_autoencoder) {
@@ -1102,6 +1105,7 @@ sd_ctx_t* new_sd_ctx(const char* model_path_c_str,
                      bool vae_decode_only,
                      bool vae_tiling,
                      bool free_params_immediately,
+                     bool freeu,
                      int n_threads,
                      enum sd_type_t wtype,
                      enum rng_type_t rng_type,
@@ -1128,6 +1132,7 @@ sd_ctx_t* new_sd_ctx(const char* model_path_c_str,
                                     vae_path,
                                     taesd_path,
                                     vae_tiling,
+                                    freeu,
                                     (ggml_type)wtype,
                                     s)) {
         delete sd_ctx->sd;

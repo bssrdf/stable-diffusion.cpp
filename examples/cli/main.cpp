@@ -79,6 +79,7 @@ struct SDParams {
     int64_t seed                  = 42;
     bool verbose                  = false;
     bool vae_tiling               = false;
+    bool freeu                    = false;
 };
 
 static std::string sd_basename(const std::string& path) {
@@ -364,6 +365,8 @@ void parse_args(int argc, const char** argv, SDParams& params) {
                 break;
             }
             params.sample_method = (sample_method_t)sample_method_found;
+        } else if (arg == "--freeu") {
+            params.freeu = true;
         } else if (arg == "-h" || arg == "--help") {
             print_usage(argc, argv);
             exit(0);
@@ -512,8 +515,9 @@ int main(int argc, const char* argv[]) {
                                   params.taesd_path.c_str(),
                                   params.lora_model_dir.c_str(),
                                   vae_decode_only,
-                                  params.vae_tiling,
+                                  params.vae_tiling,                                  
                                   true,
+                                  params.freeu,
                                   params.n_threads,
                                   params.wtype,
                                   params.rng_type,
