@@ -476,6 +476,7 @@ void sd_tiling(ggml_tensor* input, ggml_tensor* output, const int scale, const i
     params.no_alloc   = false;
 
     LOG_DEBUG("tile work buffer size: %.2f MB", params.mem_size / 1024.f / 1024.f);
+    // LOG_INFO("tile work buffer size: %.2f MB", params.mem_size / 1024.f / 1024.f);
 
     // draft context
     struct ggml_context* tiles_ctx = ggml_init(params);
@@ -483,10 +484,13 @@ void sd_tiling(ggml_tensor* input, ggml_tensor* output, const int scale, const i
         LOG_ERROR("ggml_init() failed");
         return;
     }
+    // LOG_INFO("ggml_init() success");
 
     // tiling
     ggml_tensor* input_tile  = ggml_new_tensor_4d(tiles_ctx, GGML_TYPE_F32, tile_size, tile_size, input->ne[2], 1);
+    // LOG_INFO("input tile %ld ", ggml_nbytes(input_tile));
     ggml_tensor* output_tile = ggml_new_tensor_4d(tiles_ctx, GGML_TYPE_F32, tile_size * scale, tile_size * scale, output->ne[2], 1);
+    // LOG_INFO("output tile %ld ", ggml_nbytes(output_tile));
     on_processing(input_tile, NULL, true);
     int num_tiles = (input_width * input_height) / (non_tile_overlap * non_tile_overlap);
     LOG_INFO("processing %i tiles", num_tiles);
@@ -2761,6 +2765,9 @@ struct UNetModel {
             for (int j = 0; j < num_res_blocks + 1; j++) {
                 auto h_skip = hs.back();
                 hs.pop_back();
+                
+                // printf(" i,j = (%d, %d), h      dims (%ld, %ld, %ld, %ld) name is %s \n", i, j, h->ne[0], h->ne[1], h->ne[2], h->ne[3], ggml_type_name(h->type));
+                // printf(" i,j = (%d, %d), h_skip dims (%ld, %ld, %ld, %ld) name is %s \n", i, j, h_skip->ne[0], h_skip->ne[1], h_skip->ne[2], h_skip->ne[3], ggml_type_name(h_skip->type));
 
                 h = ggml_concat(ctx0, h, h_skip);
                 h = output_res_blocks[i][j].forward(ctx0, h, emb);
@@ -4594,9 +4601,12 @@ struct EsrganBlock {
     }
 };
 
+
+#define ESRGAN_MAX_NODES 4096
+
 struct ESRGAN {
     int scale        = 4;  // default RealESRGAN_x4plus_anime_6B
-    int num_blocks   = 6;  // default RealESRGAN_x4plus_anime_6B
+    int num_blocks   = 23;  // default RealESRGAN_x4plus_anime_6B
     int in_channels  = 3;
     int out_channels = 3;
     int num_features = 64;   // default RealESRGAN_x4plus_anime_6B
@@ -4606,7 +4616,7 @@ struct ESRGAN {
     ggml_tensor* conv_first_w;  // [num_features, in_channels, 3, 3]
     ggml_tensor* conv_first_b;  // [num_features]
 
-    EsrganBlock body_blocks[6];
+    EsrganBlock body_blocks[23];
     ggml_tensor* conv_body_w;  // [num_features, num_features, 3, 3]
     ggml_tensor* conv_body_b;  // [num_features]
 
@@ -4854,7 +4864,11 @@ struct ESRGAN {
 
     struct ggml_cgraph* build_graph(struct ggml_tensor* x) {
         // since we are using ggml-alloc, this buffer only needs enough space to hold the ggml_tensor and ggml_cgraph structs, but not the tensor data
-        static size_t buf_size = ggml_tensor_overhead() * GGML_DEFAULT_GRAPH_SIZE + ggml_graph_overhead();
+        //static size_t buf_size = ggml_tensor_overhead() * GGML_DEFAULT_GRAPH_SIZE + ggml_graph_overhead();
+        static size_t buf_size = ggml_tensor_overhead()*ESRGAN_MAX_NODES + ggml_graph_overhead_custom(ESRGAN_MAX_NODES, false);
+
+        // LOG_INFO(" in build gf: %ld ", buf_size);
+
         static std::vector<uint8_t> buf(buf_size);
 
         struct ggml_init_params params = {
@@ -4863,9 +4877,17 @@ struct ESRGAN {
             /*.no_alloc   =*/true,  // the tensors will be allocated later by ggml_allocr_alloc_graph()
         };
 
+
+        // LOG_INFO(" ctx to init ");
+
         struct ggml_context* ctx0 = ggml_init(params);
 
-        struct ggml_cgraph* gf = ggml_new_graph(ctx0);
+        // LOG_INFO(" ctx inited ");
+
+        // struct ggml_cgraph* gf = ggml_new_graph(ctx0);
+        struct ggml_cgraph* gf = ggml_new_graph_custom(ctx0, ESRGAN_MAX_NODES, false);
+
+        // LOG_INFO(" gf newed ");
 
         struct ggml_tensor* x_ = NULL;
         struct ggml_tensor* os = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, 1);
@@ -4889,10 +4911,13 @@ struct ESRGAN {
             x_ = x;
         }
 
+        // LOG_INFO(" before forward ");
         struct ggml_tensor* out = forward(ctx0, os, x);
-
+        // LOG_INFO(" after forward ");
         ggml_build_forward_expand(gf, out);
         ggml_free(ctx0);
+
+        // LOG_INFO(" gf built ");
 
         return gf;
     }
@@ -4901,8 +4926,12 @@ struct ESRGAN {
         // calculate the amount of memory required
         // alignment required by the backend
         compute_alloc = ggml_allocr_new_measure_from_backend(backend);
+        // LOG_INFO("before build gf");
+
 
         struct ggml_cgraph* gf = build_graph(x);
+
+        // LOG_INFO("after build gf");
 
         // compute the required memory
         size_t compute_memory_buffer_size = ggml_allocr_alloc_graph(compute_alloc, gf);
@@ -4911,6 +4940,7 @@ struct ESRGAN {
         ggml_allocr_free(compute_alloc);
 
         LOG_DEBUG("ESRGAN compute buffer size: %.2f MB", compute_memory_buffer_size / 1024.0 / 1024.0);
+        // LOG_INFO("ESRGAN compute buffer size: %.2f MB", compute_memory_buffer_size / 1024.0 / 1024.0);
 
         compute_buffer = ggml_backend_alloc_buffer(backend, compute_memory_buffer_size);
         compute_alloc  = ggml_allocr_new_from_buffer(compute_buffer);
@@ -6391,11 +6421,14 @@ public:
         params.mem_buffer = NULL;
         params.no_alloc   = false;
         // draft context
+        // LOG_INFO("upscale ctx to be initialized " );
         struct ggml_context* upscale_ctx = ggml_init(params);
         if (!upscale_ctx) {
             LOG_ERROR("ggml_init() failed");
             return NULL;
         }
+        // LOG_INFO("upscale ctx initialized " );
+        // LOG_INFO("upscale work buffer size: %.2f MB", params.mem_size / 1024.f / 1024.f);
         LOG_DEBUG("upscale work buffer size: %.2f MB", params.mem_size / 1024.f / 1024.f);
         ggml_tensor* upscaled = ggml_new_tensor_4d(upscale_ctx, GGML_TYPE_F32, output_width, output_height, image->ne[2], 1);
         auto on_tiling        = [&](ggml_tensor* in, ggml_tensor* out, bool init) {
@@ -6405,6 +6438,7 @@ public:
                 esrgan_upscaler.compute(out, n_threads, in);
             }
         };
+        // LOG_INFO("upscale tensor created" );
         int64_t t0 = ggml_time_ms();
         sd_tiling(image, upscaled, esrgan_upscaler.scale, esrgan_upscaler.tile_size, 0.25f, on_tiling);
         esrgan_upscaler.end();
