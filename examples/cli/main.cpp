@@ -515,7 +515,7 @@ int main(int argc, const char* argv[]) {
                                   params.taesd_path.c_str(),
                                   params.lora_model_dir.c_str(),
                                   vae_decode_only,
-                                  params.vae_tiling,                                  
+                                  params.vae_tiling,
                                   true,
                                   params.freeu,
                                   params.n_threads,

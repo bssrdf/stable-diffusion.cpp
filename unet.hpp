@@ -487,7 +487,7 @@ struct UNetModel : public GGMLModule {
     float freeu_b2                         = 1.6f;
     float freeu_s1                         = 0.9;
     float freeu_s2                         = 0.2;
-     
+
 
     // network params
     struct ggml_tensor* time_embed_0_w;  // [time_embed_dim, model_channels]
@@ -971,40 +971,24 @@ struct UNetModel : public GGMLModule {
             for (int j = 0; j < num_res_blocks + 1; j++) {
                 auto h_skip = hs.back();
                 hs.pop_back();
-                // printf("i, j = (%d, %d), (%d) \n ", i, j, hs.size());
-                // printf("i, j = (%d, %d), B (%d, %d, %d, %d) \n ", i, j, h_skip->ne[0], h_skip->ne[1], h_skip->ne[2], h_skip->ne[3]);
-                // printf("i, j = (%d, %d), B (%d, %d, %d, %d) \n ", i, j, h->ne[0], h->ne[1], h->ne[2], h->ne[3]);
-                // struct ggml_tensor *h_skip1 = nullptr;
-                // struct ggml_tensor *h1 = nullptr;  
                 if(use_freeu){
                     if(h->ne[2] == 1280){
-                        // printf("1280: (%d, %d, %d, %d) \n ", h->ne[0], h->ne[1], h->ne[2], h->ne[3]);
                         h_skip = ggml_fft_filter(ctx0, h_skip, nullptr);
-                        h_skip->op_params[0] = 1;                        
+                        h_skip->op_params[0] = 1;
                         memcpy(h_skip->op_params+1,  &freeu_s1, sizeof(float));
                         h = ggml_freeu_backbone(ctx0, h, nullptr);
-                        h->op_params[0] = 2;                        
-                        memcpy(h->op_params+1,  &freeu_b1, sizeof(float));                        
+                        h->op_params[0] = 2;
+                        memcpy(h->op_params+1,  &freeu_b1, sizeof(float));
                     }
                     if(h->ne[2] == 640){
-                        // printf("640: (%d, %d, %d, %d) \n ", h->ne[0], h->ne[1], h->ne[2], h->ne[3]);
                         h_skip = ggml_fft_filter(ctx0, h_skip, nullptr);
-                        h_skip->op_params[0] = 1;                        
+                        h_skip->op_params[0] = 1;
                         memcpy(h_skip->op_params+1,  &freeu_s2, sizeof(float));
                         h = ggml_freeu_backbone(ctx0, h, nullptr);
-                        h->op_params[0] = 2;                        
-                        memcpy(h->op_params+1,  &freeu_b2, sizeof(float));                        
+                        h->op_params[0] = 2;
+                        memcpy(h->op_params+1,  &freeu_b2, sizeof(float));
                     }
                 }
-                // if (h_skip1 != nullptr)
-                //     printf("i, j = (%d, %d), A (%d, %d, %d, %d) \n ", i, j, h_skip1->ne[0], h_skip1->ne[1], h_skip1->ne[2], h_skip1->ne[3]);
-                // if (h1 != nullptr)    
-                //     printf("i, j = (%d, %d), A (%d, %d, %d, %d) \n ", i, j, h1->ne[0], h1->ne[1], h1->ne[2], h1->ne[3]);
-                // if (use_freeu && (h->ne[2] == 1280 || h->ne[2] == 640)){
-                //     h_skip = h_skip1;
-                //     h = h1;
-                // }
-
                 h = ggml_concat(ctx0, h, h_skip);
                 h = output_res_blocks[i][j].forward(ctx0, h, emb);
 
