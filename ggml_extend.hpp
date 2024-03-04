@@ -19,6 +19,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <queue>
+#include <set>
+
 
 #include "ggml/ggml-alloc.h"
 #include "ggml/ggml-backend.h"
@@ -773,7 +776,8 @@ protected:
     ggml_backend_buffer_t params_buffer = NULL;
 
     struct ggml_context* compute_ctx    = NULL;
-    struct ggml_gallocr* compute_allocr = NULL;
+    // struct ggml_gallocr* compute_allocr = NULL;
+    ggml_gallocr_t compute_allocr = NULL;
 
     std::map<struct ggml_tensor*, const void*> backend_tensor_data_map;
 
@@ -931,6 +935,108 @@ public:
         if (ggml_backend_is_cpu(backend)) {
             ggml_backend_cpu_set_n_threads(backend, n_threads);
         }
+
+#ifdef SD_USE_METAL
+        if (ggml_backend_is_metal(backend)) {
+            ggml_backend_metal_set_n_cb(backend, n_threads);
+        }
+#endif
+        ggml_backend_graph_compute(backend, gf);
+
+#ifdef GGML_PERF
+        ggml_graph_print(gf);
+#endif
+        if (output != NULL) {
+            auto result = gf->nodes[gf->n_nodes - 1];
+            if (*output == NULL && output_ctx != NULL) {
+                *output = ggml_dup_tensor(output_ctx, result);
+            }
+            if (*output != NULL) {
+                ggml_backend_tensor_get_and_sync(backend, result, (*output)->data, 0, ggml_nbytes(*output));
+            }
+        }
+
+        if (free_compute_buffer_immediately) {
+            free_compute_buffer();
+        }
+    }
+
+    void front_propagate_compute(get_graph_cb_t get_graph,
+                 int n_threads,
+                 bool free_compute_buffer_immediately = true,
+                 struct ggml_tensor** output          = NULL,
+                 struct ggml_context* output_ctx      = NULL) {
+        alloc_compute_buffer(get_graph);
+        reset_compute_ctx();
+        struct ggml_cgraph* gf = get_graph();
+
+        GGML_ASSERT(ggml_gallocr_alloc_graph(compute_allocr, gf));
+        cpy_data_to_backend_tensor();
+        if (ggml_backend_is_cpu(backend)) {
+            ggml_backend_cpu_set_n_threads(backend, n_threads);
+        }
+
+        printf("number of nodes + leaves (%d + %d) \n", gf->n_nodes, gf->n_leafs);
+
+        std::queue<ggml_tensor *> que;
+        std::set<ggml_tensor *> st;
+        auto node = gf->nodes[gf->n_nodes - 1];
+        que.push(gf->nodes[gf->n_nodes - 1]);
+        //st.insert(node);
+        std::vector<std::vector<ggml_tensor *>> layers;
+        while(que.size() > 0){
+            std::queue<ggml_tensor *> new_que;
+            std::vector<ggml_tensor *> layer;
+            size_t n = que.size();
+            for(int i = 0; i < n; i++){
+                ggml_tensor * node = que.front();
+                if(st.count(node) == 0){
+                    layer.push_back(node);
+                    st.insert(node);
+                    for (int j = 0; j < GGML_MAX_SRC; j++) {
+                        struct ggml_tensor * src = node->src[j];
+                        if (src == NULL) {
+                            continue;
+                        }
+                        new_que.push(src);
+                    }
+                }
+                que.pop();
+            }
+            que = new_que;
+            layers.push_back(layer);
+        }
+        printf("compute_allocr allocated %ld buffers \n", ggml_gallocr_get_n_buffers(compute_allocr));
+        printf("number of layers %ld \n", layers.size());
+        printf("[");
+        float mems = 0.f;
+        int li = -1;
+        for(int i = 0; i < layers.size(); i++){
+            std::vector<ggml_tensor *> layer = layers[i];
+            size_t l_mem_size = 0;
+            for(int j = 0; j < layer.size(); j++){
+                ggml_tensor * node = layer[j];
+                l_mem_size += ggml_nbytes(node);
+            }
+            // printf("%ld, ", layer.size());
+            float s = l_mem_size / (1024.0 * 1024.0);
+            if(s > mems){
+                mems = s;
+                li = i;
+            }
+            printf("%6.2f, ", s);
+        }
+        printf("]\n");
+        for(int i = 0; i < layers.size(); i++){
+            std::vector<ggml_tensor *> layer = layers[i];
+            for(int j = 0; j < layer.size(); j++){
+                ggml_tensor * node = layer[j];
+                if(i == li)
+                    print_ggml_tensor(node, true, node->name);
+            }
+        }
+
+
 
 #ifdef SD_USE_METAL
         if (ggml_backend_is_metal(backend)) {
