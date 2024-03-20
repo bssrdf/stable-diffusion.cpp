@@ -657,7 +657,8 @@ int main(int argc, const char* argv[]) {
                                   params.stacked_id_embeddings_path.c_str(),
                                   vae_decode_only,
                                   params.vae_tiling,
-                                  true,
+                                  //true,
+                                  false,
                                   params.n_threads,
                                   params.wtype,
                                   params.rng_type,
@@ -670,6 +671,8 @@ int main(int argc, const char* argv[]) {
         printf("new_sd_ctx_t failed\n");
         return 1;
     }
+
+    for(int j = 0; j < 2; j++){ 
 
     sd_image_t* results;
     if (params.mode == TXT2IMG) {
@@ -807,6 +810,7 @@ int main(int argc, const char* argv[]) {
 
     size_t last            = params.output_path.find_last_of(".");
     std::string dummy_name = last != std::string::npos ? params.output_path.substr(0, last) : params.output_path;
+    dummy_name += "_" + std::to_string(j + 1);
     for (int i = 0; i < params.batch_count; i++) {
         if (results[i].data == NULL) {
             continue;
@@ -819,6 +823,7 @@ int main(int argc, const char* argv[]) {
         results[i].data = NULL;
     }
     free(results);
+    }
     free_sd_ctx(sd_ctx);
 
     return 0;
