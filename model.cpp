@@ -134,6 +134,12 @@ std::unordered_map<std::string, std::string> vae_decoder_name_map = {
     {"first_stage_model.decoder.mid.attn_1.to_v.weight", "first_stage_model.decoder.mid.attn_1.v.weight"},
 };
 
+std::unordered_map<std::string, std::string> pmid_name_map = {
+    {"pmid.vision_model.pre_layernorm.bias", "pmid.vision_model.pre_layrnorm.bias"},
+    {"pmid.vision_model.pre_layernorm.weight", "pmid.vision_model.pre_layrnorm.weight"},
+    {"pmid.vision_model.visual_projection.weight", "pmid.visual_projection.weight"},
+};
+
 std::string convert_open_clip_to_hf_clip(const std::string& name) {
     std::string new_name = name;
     std::string prefix;
@@ -175,6 +181,13 @@ std::string convert_open_clip_to_hf_clip(const std::string& name) {
 std::string convert_vae_decoder_name(const std::string& name) {
     if (vae_decoder_name_map.find(name) != vae_decoder_name_map.end()) {
         return vae_decoder_name_map[name];
+    }
+    return name;
+}
+
+std::string convert_pmid_name(const std::string& name) {
+    if (pmid_name_map.find(name) != pmid_name_map.end()) {
+        return pmid_name_map[name];
     }
     return name;
 }
@@ -375,7 +388,9 @@ std::string convert_tensor_name(const std::string& name) {
         new_name = convert_open_clip_to_hf_clip(name);
     } else if (starts_with(name, "first_stage_model.decoder")) {
         new_name = convert_vae_decoder_name(name);
-    } else if (starts_with(name, "control_model.")) {  // for controlnet pth models
+    } else if (starts_with(name, "pmid")) {
+        new_name = convert_pmid_name(name);
+    }else if (starts_with(name, "control_model.")) {  // for controlnet pth models
         size_t pos = name.find('.');
         if (pos != std::string::npos) {
             new_name = name.substr(pos + 1);
