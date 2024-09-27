@@ -193,6 +193,7 @@ struct FuseModule{
         class_tokens_mask = ggml_repeat(ctx, class_tokens_mask, prompt_embeds);
         prompt_embeds = ggml_mul(ctx, prompt_embeds, class_tokens_mask);
         struct ggml_tensor * updated_prompt_embeds = ggml_add(ctx, prompt_embeds, stacked_id_embeds);
+        ggml_set_name(updated_prompt_embeds, "updated_prompt_embeds");
         return updated_prompt_embeds;
     }
 
@@ -268,6 +269,7 @@ struct PhotoMakerIDEncoder : public GGMLModule {
                                                              ); // [batch_size, seq_length, hidden_size]
 
         struct ggml_tensor *id_embeds = vision_model.visual_project(ctx, shared_id_embeds); // [batch_size, seq_length, proj_dim(768)]
+        ggml_set_name(shared_id_embeds, "shared_id_embeds");
         struct ggml_tensor *id_embeds_2 = ggml_mul_mat(ctx, visual_projection_2, shared_id_embeds); // [batch_size, seq_length, 1280]
        
         id_embeds = ggml_cont(ctx, ggml_permute(ctx, id_embeds, 2, 0, 1, 3));

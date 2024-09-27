@@ -978,20 +978,27 @@ struct CLIPVisionModel {
         
         embeddings =
             ggml_add(ctx0, embeddings, ggml_get_rows(ctx0, position_embeddings, positions));
-
+        ggml_set_name(embeddings, "embeddings_to_transformer"); 
         // pre-layernorm        
-        embeddings = ggml_nn_layer_norm(ctx0, embeddings, pre_ln_w, pre_ln_w);
+        // embeddings = ggml_nn_layer_norm(ctx0, embeddings, pre_ln_w, pre_ln_w);
+        embeddings = ggml_nn_layer_norm(ctx0, embeddings, pre_ln_w, pre_ln_b);
+        ggml_set_name(embeddings, "embeddings_after_prenorm"); 
 
         // transformer
         for (int i = 0; i < num_hidden_layers; i++) {            
             embeddings = resblocks[i].forward(ctx0, embeddings);  // [N, n_token, hidden_size]
-        }        
+        }
+        print_ggml_tensor(embeddings, true, "embedding after transformer");
+        ggml_set_name(embeddings, "embeddings_after_transformer"); 
+        print_ggml_tensor(cls, true, "cls");
+
         // get the output of cls token, e.g., 0th index
         embeddings = ggml_get_rows(ctx0, ggml_reshape_2d(ctx0, embeddings, hidden_size, num_positions * batch_size), cls);
-
+      
+         print_ggml_tensor(embeddings, true, "embedding after getrows");
         // post-layernorm      
         embeddings = ggml_nn_layer_norm(ctx0, embeddings, post_ln_w, post_ln_b);
-
+       
         struct ggml_tensor * cur = embeddings;
 
         ggml_set_name(cur, "pooled_output");
