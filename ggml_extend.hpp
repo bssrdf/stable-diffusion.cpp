@@ -591,23 +591,23 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_nn_conv_2d(struct ggml_context* ctx,
                                                       int p1 = 0,
                                                       int d0 = 1,
                                                       int d1 = 1) {
-    // if(w->ne[0]==3 && w->ne[1]==3 && p0==1 && p1==1 && s0==1 && s1==1 && 
-    //       d0==1 && d1==1 && w->ne[3]%64 == 0 && w->ne[2]%8 == 0 && x->ne[3] == 1){
+    if(w->ne[0]==3 && w->ne[1]==3 && p0==1 && p1==1 && s0==1 && s1==1 && 
+          d0==1 && d1==1 && w->ne[3]%64 == 0 && w->ne[2]%8 == 0 && x->ne[3] == 1){
        
         // printf("x-shape 0: (%zu, %zu, %zu, %zu) %zu, %zu \n", x->ne[0], x->ne[1], x->ne[2], x->ne[3], w->ne[2], w->ne[3]); 
         // printf(" (%zu, %zu, %zu, %zu) %zu, %zu \n", x->ne[0], x->ne[1], x->ne[2], x->ne[3], w->ne[2], w->ne[3]);
         // print_ggml_tensor(x, false, "bef wino");
-        // x = ggml_conv_2d_3x3(ctx, w, x);         
+        x = ggml_conv_2d_3x3(ctx, w, x);         
         // print_ggml_tensor(x, false, "aft wino");                                 
         // printf("x-shape 2: (%zu, %zu, %zu, %zu) %zu, %zu \n", x->ne[0], x->ne[1], x->ne[2], x->ne[3], w->ne[2], w->ne[3]); 
-    // }          
-    // else{    
+    }          
+    else{    
         x = ggml_conv_2d(ctx, w, x, s0, s1, p0, p1, d0, d1);
         // if(w->ne[0]==3 && w->ne[1]==3 && p0==1 && p1==1 && s0==1 && s1==1 && 
         //   d0==1 && d1==1 && w->ne[3]%64 == 0 && w->ne[2]%8 == 0 && x->ne[3] == 1){
         //     printf("x-shape1: (%zu, %zu, %zu, %zu) %zu, %zu \n", x->ne[0], x->ne[1], x->ne[2], x->ne[3], w->ne[2], w->ne[3]);
         // }
-    // }
+    }
     if (b != NULL) {
         b = ggml_reshape_4d(ctx, b, 1, 1, b->ne[0], 1);
         // b = ggml_repeat(ctx, b, x);
@@ -1011,7 +1011,7 @@ protected:
 
         // compute the required memory
         size_t compute_buffer_size = ggml_gallocr_get_buffer_size(compute_allocr, 0);
-        LOG_DEBUG("%s compute buffer size: %.2f MB(%s)",
+        LOG_INFO("%s compute buffer size: %.2f MB(%s)",
                   get_desc().c_str(),
                   compute_buffer_size / 1024.0 / 1024.0,
                   ggml_backend_is_cpu(backend) ? "RAM" : "VRAM");
@@ -1329,6 +1329,10 @@ public:
         if (bias) {
             b = params["bias"];
         }
+        // if(kernel_size.first == 3){
+        //    printf(" (%zu, %zu, %zu, %zu) %zu, %zu \n", x->ne[0], x->ne[1], x->ne[2], x->ne[3], in_channels, out_channels);
+        //     //  printf(" (%d -  %d - %d) \n", stride.first, padding.first, dilation.first);
+        // }
         return ggml_nn_conv_2d(ctx, x, w, b, stride.second, stride.first, padding.second, padding.first, dilation.second, dilation.first);
     }
 };
