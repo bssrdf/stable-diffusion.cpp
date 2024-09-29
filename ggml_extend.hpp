@@ -591,23 +591,47 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_nn_conv_2d(struct ggml_context* ctx,
                                                       int p1 = 0,
                                                       int d0 = 1,
                                                       int d1 = 1) {
-    if(w->ne[0]==3 && w->ne[1]==3 && p0==1 && p1==1 && s0==1 && s1==1 && 
-          d0==1 && d1==1 && w->ne[3]%64 == 0 && w->ne[2]%8 == 0 && x->ne[3] == 1){
+    // if(w->ne[0]==3 && w->ne[1]==3 && p0==1 && p1==1 && s0==1 && s1==1 && 
+    //       d0==1 && d1==1 && w->ne[3]%64 == 0 && w->ne[2]%8 == 0 && x->ne[3] == 1){
        
         // printf("x-shape 0: (%zu, %zu, %zu, %zu) %zu, %zu \n", x->ne[0], x->ne[1], x->ne[2], x->ne[3], w->ne[2], w->ne[3]); 
         // printf(" (%zu, %zu, %zu, %zu) %zu, %zu \n", x->ne[0], x->ne[1], x->ne[2], x->ne[3], w->ne[2], w->ne[3]);
         // print_ggml_tensor(x, false, "bef wino");
-        x = ggml_conv_2d_3x3(ctx, w, x);         
+        // x = ggml_conv_2d_3x3(ctx, w, x);         
         // print_ggml_tensor(x, false, "aft wino");                                 
         // printf("x-shape 2: (%zu, %zu, %zu, %zu) %zu, %zu \n", x->ne[0], x->ne[1], x->ne[2], x->ne[3], w->ne[2], w->ne[3]); 
-    }          
-    else{    
-        x = ggml_conv_2d(ctx, w, x, s0, s1, p0, p1, d0, d1);
+    // }          
+    // else{    
+    x = ggml_conv_2d(ctx, w, x, s0, s1, p0, p1, d0, d1);
         // if(w->ne[0]==3 && w->ne[1]==3 && p0==1 && p1==1 && s0==1 && s1==1 && 
         //   d0==1 && d1==1 && w->ne[3]%64 == 0 && w->ne[2]%8 == 0 && x->ne[3] == 1){
         //     printf("x-shape1: (%zu, %zu, %zu, %zu) %zu, %zu \n", x->ne[0], x->ne[1], x->ne[2], x->ne[3], w->ne[2], w->ne[3]);
         // }
+    // }
+    if (b != NULL) {
+        b = ggml_reshape_4d(ctx, b, 1, 1, b->ne[0], 1);
+        // b = ggml_repeat(ctx, b, x);
+        x = ggml_add(ctx, x, b);
     }
+    return x;
+}
+
+// w: [IC, 4, 4, OC]
+// x: [1, IC, IH, IW]
+// b: [OC,]
+// result: [N, OC, OH, OW]
+__STATIC_INLINE__ struct ggml_tensor* ggml_nn_conv_2d1x3x3(struct ggml_context* ctx,
+                                                      struct ggml_tensor* x,
+                                                      struct ggml_tensor* w,
+                                                      struct ggml_tensor* b
+                                                      ) {
+    // int64_t *ne = x->ne;
+    // if(!w) printf("w is null\n");
+    // int64_t *ne1 = w->ne;
+    // printf("before: (%ld, %ld, %ld, %ld), (%ld, %ld, %ld, %ld)\n",  ne[0], ne[1], ne[2], ne[3], ne1[0], ne1[1], ne1[2], ne1[3]);
+    x = ggml_winograd_stage1(ctx, w, x);    
+    // ne = x->ne;
+    // printf("after: (%ld, %ld, %ld, %ld)\n",  ne[0], ne[1], ne[2], ne[3]);
     if (b != NULL) {
         b = ggml_reshape_4d(ctx, b, 1, 1, b->ne[0], 1);
         // b = ggml_repeat(ctx, b, x);
@@ -1029,6 +1053,8 @@ protected:
         backend_tensor_data_map.clear();
     }
 
+    virtual void transform(int n){};
+
 public:
     virtual std::string get_desc() = 0;
 
@@ -1165,12 +1191,27 @@ protected:
         }
     }
 
+    void transform_blocks(struct ggml_context* ctx, int n, ggml_backend_t backend) {
+        for (auto& pair : blocks) {
+            auto& block = pair.second;
+
+            block->transform_params(ctx, n, backend);
+        }
+    }
+
     virtual void init_params(struct ggml_context* ctx, ggml_type wtype) {}
+
+    virtual void transform_params(struct ggml_context* ctx, int n, ggml_backend_t backend){}
 
 public:
     void init(struct ggml_context* ctx, ggml_type wtype) {
         init_blocks(ctx, wtype);
         init_params(ctx, wtype);
+    }
+
+    void transform(struct ggml_context* ctx, int n, ggml_backend_t backend) {
+        transform_blocks(ctx, n, backend);
+        transform_params(ctx, n, backend);
     }
 
     size_t get_params_num() {
@@ -1323,6 +1364,8 @@ public:
           dilation(dilation),
           bias(bias) {}
 
+    // Conv2d(){}      
+
     struct ggml_tensor* forward(struct ggml_context* ctx, struct ggml_tensor* x) {
         struct ggml_tensor* w = params["weight"];
         struct ggml_tensor* b = NULL;
@@ -1334,6 +1377,62 @@ public:
         //     //  printf(" (%d -  %d - %d) \n", stride.first, padding.first, dilation.first);
         // }
         return ggml_nn_conv_2d(ctx, x, w, b, stride.second, stride.first, padding.second, padding.first, dilation.second, dilation.first);
+    }
+};
+
+class Conv2d1x3x3 : public UnaryBlock {
+protected:
+    int64_t in_channels;
+    int64_t out_channels;    
+    bool bias;
+
+    struct ggml_tensor* trans = NULL;
+
+    void init_params(struct ggml_context* ctx, ggml_type wtype) {
+        params["weight"] = ggml_new_tensor_4d(ctx, GGML_TYPE_F16, 3, 3, in_channels, out_channels);
+        // params["transform"] = ggml_winograd_stage0(ctx, params["weight"]); 
+        trans = ggml_winograd_stage0(ctx, params["weight"]); 
+        // int64_t *ne = trans->ne;
+        // printf("transform: (%ld, %ld, %ld, %ld)\n",  ne[0], ne[1], ne[2], ne[3]);
+        if (bias) {
+            params["bias"] = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, out_channels);
+        }
+    }
+
+    void transform_params(struct ggml_context* ctx, int n_threads, ggml_backend_t backend){
+        // struct ggml_tensor* w = params["weight"];
+        // struct ggml_tensor* t = ggml_winograd_stage0(ctx, w);   
+        struct ggml_cgraph  * gf = ggml_new_graph(ctx);
+        ggml_build_forward_expand(gf, trans);
+        if (ggml_backend_is_cpu(backend)) {
+            ggml_backend_cpu_set_n_threads(backend, n_threads);
+        }
+        ggml_backend_graph_compute(backend, gf);
+        params["transform"] = trans;
+        ggml_graph_clear(gf);
+    }
+
+public:
+    Conv2d1x3x3(int64_t in_channels,
+           int64_t out_channels,           
+           bool bias = true)
+        : in_channels(in_channels),
+          out_channels(out_channels),
+          bias(bias){}
+
+    struct ggml_tensor* forward(struct ggml_context* ctx, struct ggml_tensor* x) {
+        // struct ggml_tensor* w = params["weight"];
+        struct ggml_tensor* w = params["transform"];
+        struct ggml_tensor* b = NULL;
+        if (bias) {
+            b = params["bias"];
+        }
+        // if(kernel_size.first == 3){
+        //    printf(" (%zu, %zu, %zu, %zu) %zu, %zu \n", x->ne[0], x->ne[1], x->ne[2], x->ne[3], in_channels, out_channels);
+        //     //  printf(" (%d -  %d - %d) \n", stride.first, padding.first, dilation.first);
+        // }
+        // return ggml_nn_conv_2d1x3x3(ctx, x, w, b);
+        return ggml_nn_conv_2d1x3x3(ctx, x, trans, b);
     }
 };
 

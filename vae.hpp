@@ -20,10 +20,17 @@ public:
           out_channels(out_channels) {
         // temb_channels is always 0
         blocks["norm1"] = std::shared_ptr<GGMLBlock>(new GroupNorm32(in_channels));
-        blocks["conv1"] = std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, out_channels, {3, 3}, {1, 1}, {1, 1}));
+        if(in_channels % 8 == 0 && out_channels % 64 == 0)
+            blocks["conv1"] = std::shared_ptr<GGMLBlock>(new Conv2d1x3x3(in_channels, out_channels));
+        else
+            blocks["conv1"] = std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, out_channels, {3, 3}, {1, 1}, {1, 1}));
+        
 
         blocks["norm2"] = std::shared_ptr<GGMLBlock>(new GroupNorm32(out_channels));
-        blocks["conv2"] = std::shared_ptr<GGMLBlock>(new Conv2d(out_channels, out_channels, {3, 3}, {1, 1}, {1, 1}));
+        if(in_channels % 8 == 0 && out_channels % 64 == 0)
+            blocks["conv2"] = std::shared_ptr<GGMLBlock>(new Conv2d1x3x3(out_channels, out_channels));
+        else
+            blocks["conv2"] = std::shared_ptr<GGMLBlock>(new Conv2d(out_channels, out_channels, {3, 3}, {1, 1}, {1, 1}));
 
         if (out_channels != in_channels) {
             blocks["nin_shortcut"] = std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, out_channels, {1, 1}));
@@ -34,9 +41,9 @@ public:
         // x: [N, in_channels, h, w]
         // t_emb is always None
         auto norm1 = std::dynamic_pointer_cast<GroupNorm32>(blocks["norm1"]);
-        auto conv1 = std::dynamic_pointer_cast<Conv2d>(blocks["conv1"]);
+        auto conv1 = std::dynamic_pointer_cast<UnaryBlock>(blocks["conv1"]);
         auto norm2 = std::dynamic_pointer_cast<GroupNorm32>(blocks["norm2"]);
-        auto conv2 = std::dynamic_pointer_cast<Conv2d>(blocks["conv2"]);
+        auto conv2 = std::dynamic_pointer_cast<UnaryBlock>(blocks["conv2"]);
 
         auto h = x;
         h      = norm1->forward(ctx, h);
@@ -239,7 +246,11 @@ public:
           in_channels(in_channels),
           z_channels(z_channels),
           double_z(double_z) {
-        blocks["conv_in"] = std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, ch, {3, 3}, {1, 1}, {1, 1}));
+        
+        if(in_channels % 8 == 0 && ch % 64 == 0)
+            blocks["conv_in"] = std::shared_ptr<GGMLBlock>(new Conv2d1x3x3(in_channels, ch));
+        else
+            blocks["conv_in"] = std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, ch, {3, 3}, {1, 1}, {1, 1}));
 
         size_t num_resolutions = ch_mult.size();
 
@@ -267,18 +278,23 @@ public:
         blocks["mid.block_2"] = std::shared_ptr<GGMLBlock>(new ResnetBlock(block_in, block_in));
 
         blocks["norm_out"] = std::shared_ptr<GGMLBlock>(new GroupNorm32(block_in));
-        blocks["conv_out"] = std::shared_ptr<GGMLBlock>(new Conv2d(block_in, double_z ? z_channels * 2 : z_channels, {3, 3}, {1, 1}, {1, 1}));
+        int block_out =  double_z ? z_channels * 2 : z_channels;
+        if(block_in % 8 == 0 && block_out % 64 == 0)        
+            blocks["conv_out"] = std::shared_ptr<GGMLBlock>(new Conv2d1x3x3(block_in, block_out));
+        else
+            blocks["conv_out"] = std::shared_ptr<GGMLBlock>(new Conv2d(block_in, block_out, {3, 3}, {1, 1}, {1, 1}));
+
     }
 
     virtual struct ggml_tensor* forward(struct ggml_context* ctx, struct ggml_tensor* x) {
         // x: [N, in_channels, h, w]
 
-        auto conv_in     = std::dynamic_pointer_cast<Conv2d>(blocks["conv_in"]);
+        auto conv_in     = std::dynamic_pointer_cast<UnaryBlock>(blocks["conv_in"]);
         auto mid_block_1 = std::dynamic_pointer_cast<ResnetBlock>(blocks["mid.block_1"]);
         auto mid_attn_1  = std::dynamic_pointer_cast<AttnBlock>(blocks["mid.attn_1"]);
         auto mid_block_2 = std::dynamic_pointer_cast<ResnetBlock>(blocks["mid.block_2"]);
         auto norm_out    = std::dynamic_pointer_cast<GroupNorm32>(blocks["norm_out"]);
-        auto conv_out    = std::dynamic_pointer_cast<Conv2d>(blocks["conv_out"]);
+        auto conv_out    = std::dynamic_pointer_cast<UnaryBlock>(blocks["conv_out"]);
 
         auto h = conv_in->forward(ctx, x);  // [N, ch, h, w]
 
@@ -331,7 +347,13 @@ protected:
         if (video_decoder) {
             return std::shared_ptr<GGMLBlock>(new AE3DConv(in_channels, out_channels, kernel_size, video_kernel_size, stride, padding));
         } else {
-            return std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, out_channels, kernel_size, stride, padding));
+            if (kernel_size.first == 3 && kernel_size.second == 3 && 
+                stride.first == 1 && stride.second == 1 &&  
+                in_channels % 8 == 0 && out_channels % 64 == 0 && 
+                padding.first == 1 && padding.second == 1)
+                return std::shared_ptr<GGMLBlock>(new Conv2d1x3x3(in_channels, out_channels));
+            else    
+                return std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, out_channels, kernel_size, stride, padding));
         }
     }
 
@@ -534,6 +556,10 @@ struct AutoEncoderKL : public GGMLRunner {
 
     std::string get_desc() {
         return "vae";
+    }
+
+    void transform(int n){
+       ae.transform(params_ctx, n, backend);
     }
 
     void get_param_tensors(std::map<std::string, struct ggml_tensor*>& tensors, const std::string prefix) {

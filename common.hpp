@@ -49,12 +49,15 @@ public:
                   int out_channels)
         : channels(channels),
           out_channels(out_channels) {
-        blocks["conv"] = std::shared_ptr<GGMLBlock>(new Conv2d(channels, out_channels, {3, 3}, {1, 1}, {1, 1}));
+        if(channels % 8 == 0 && out_channels % 64 == 0)    
+            blocks["conv"] = std::shared_ptr<GGMLBlock>(new Conv2d1x3x3(channels, out_channels));
+        else
+            blocks["conv"] = std::shared_ptr<GGMLBlock>(new Conv2d(channels, out_channels, {3, 3}, {1, 1}, {1, 1}));
     }
 
     struct ggml_tensor* forward(struct ggml_context* ctx, struct ggml_tensor* x) {
         // x: [N, channels, h, w]
-        auto conv = std::dynamic_pointer_cast<Conv2d>(blocks["conv"]);
+        auto conv = std::dynamic_pointer_cast<UnaryBlock>(blocks["conv"]);
 
         x = ggml_upscale(ctx, x, 2);  // [N, channels, h*2, w*2]
         x = conv->forward(ctx, x);    // [N, out_channels, h*2, w*2]
@@ -82,7 +85,12 @@ protected:
         if (dims == 3) {
             return std::shared_ptr<GGMLBlock>(new Conv3dnx1x1(in_channels, out_channels, kernel_size.first, 1, padding.first));
         } else {
-            return std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, out_channels, kernel_size, {1, 1}, padding));
+            if (kernel_size.first == 3 && kernel_size.second == 3 && 
+                in_channels % 8 == 0 && out_channels % 64 == 0 && 
+                padding.first == 1 && padding.second == 1)
+                return std::shared_ptr<GGMLBlock>(new Conv2d1x3x3(in_channels, out_channels));
+            else
+                return std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, out_channels, kernel_size, {1, 1}, padding));
         }
     }
 
@@ -138,8 +146,9 @@ public:
         // in_layers
         auto h = in_layers_0->forward(ctx, x);
         h      = ggml_silu_inplace(ctx, h);
+        // print_ggml_tensor(h, true, "bef in_layer"); 
         h      = in_layers_2->forward(ctx, h);  // [N, out_channels, h, w] if dims == 2 else [N, out_channels, t, h, w]
-
+        // print_ggml_tensor(h, true, "aft in_layer"); 
         // emb_layers
         if (!skip_t_emb) {
             auto emb_layer_1 = std::dynamic_pointer_cast<Linear>(blocks["emb_layers.1"]);

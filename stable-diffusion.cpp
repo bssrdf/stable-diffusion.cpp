@@ -423,6 +423,8 @@ public:
         }
 
         // LOG_DEBUG("model size = %.2fMB", total_size / 1024.0 / 1024.0);
+        diffusion_model->transform(1);
+        first_stage_model->transform(1);
 
         if (version == VERSION_SVD) {
             // diffusion_model->test();

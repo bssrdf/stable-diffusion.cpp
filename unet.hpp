@@ -217,8 +217,11 @@ public:
             blocks["label_emb.0.2"] = std::shared_ptr<GGMLBlock>(new Linear(time_embed_dim, time_embed_dim));
         }
 
-        // input_blocks
-        blocks["input_blocks.0.0"] = std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, model_channels, {3, 3}, {1, 1}, {1, 1}));
+        // input_blocks        
+        if(in_channels % 8 == 0 && model_channels % 64 == 0)
+            blocks["input_blocks.0.0"] = std::shared_ptr<GGMLBlock>(new Conv2d1x3x3(in_channels, model_channels));
+        else
+            blocks["input_blocks.0.0"] = std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, model_channels, {3, 3}, {1, 1}, {1, 1}));
 
         std::vector<int> input_block_chans;
         input_block_chans.push_back(model_channels);
@@ -336,7 +339,10 @@ public:
         // out
         blocks["out.0"] = std::shared_ptr<GGMLBlock>(new GroupNorm32(ch));  // ch == model_channels
         // out_1 is nn.SiLU()
-        blocks["out.2"] = std::shared_ptr<GGMLBlock>(new Conv2d(model_channels, out_channels, {3, 3}, {1, 1}, {1, 1}));
+        if(model_channels % 8 == 0 && out_channels % 64 == 0)
+            blocks["out.2"] = std::shared_ptr<GGMLBlock>(new Conv2d1x3x3(model_channels, out_channels));
+        else
+            blocks["out.2"] = std::shared_ptr<GGMLBlock>(new Conv2d(model_channels, out_channels, {3, 3}, {1, 1}, {1, 1}));    
     }
 
     struct ggml_tensor* resblock_forward(std::string name,
@@ -407,10 +413,19 @@ public:
 
         auto time_embed_0     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.0"]);
         auto time_embed_2     = std::dynamic_pointer_cast<Linear>(blocks["time_embed.2"]);
-        auto input_blocks_0_0 = std::dynamic_pointer_cast<Conv2d>(blocks["input_blocks.0.0"]);
+        // std::shared_ptr<UnaryBlock> input_blocks_0_0;
+        // if(in_channels % 8 == 0 && model_channels % 64 == 0)
+        auto input_blocks_0_0 = std::dynamic_pointer_cast<UnaryBlock>(blocks["input_blocks.0.0"]);
+        // else
+            // input_blocks_0_0 = std::dynamic_pointer_cast<Conv2d>(blocks["input_blocks.0.0"]);
+
 
         auto out_0 = std::dynamic_pointer_cast<GroupNorm32>(blocks["out.0"]);
-        auto out_2 = std::dynamic_pointer_cast<Conv2d>(blocks["out.2"]);
+        //  std::shared_ptr<UnaryBlock> out_2;        
+        // if(model_channels % 8 == 0 && out_channels % 64 == 0)
+        auto out_2 = std::dynamic_pointer_cast<UnaryBlock>(blocks["out.2"]);
+        // else
+            // out_2 = std::dynamic_pointer_cast<Conv2d>(blocks["out.2"]);
 
         auto t_emb = ggml_nn_timestep_embedding(ctx, timesteps, model_channels);  // [N, model_channels]
 
@@ -432,10 +447,11 @@ public:
 
         // input_blocks
         std::vector<struct ggml_tensor*> hs;
-
+        // print_ggml_tensor(x, true, "input to unet"); 
         // input block 0
         auto h = input_blocks_0_0->forward(ctx, x);
-
+        // print_ggml_tensor(h, true, "after input block 0 0"); 
+          
         ggml_set_name(h, "bench-start");
         hs.push_back(h);
         // input block 1-11
@@ -447,7 +463,9 @@ public:
             for (int j = 0; j < num_res_blocks; j++) {
                 input_block_idx += 1;
                 std::string name = "input_blocks." + std::to_string(input_block_idx) + ".0";
+                // print_ggml_tensor(h, true, "bef res block"); 
                 h                = resblock_forward(name, ctx, h, emb, num_video_frames);  // [N, mult*model_channels, h, w]
+                // print_ggml_tensor(h, true, "after res block"); 
                 if (std::find(attention_resolutions.begin(), attention_resolutions.end(), ds) != attention_resolutions.end()) {
                     std::string name = "input_blocks." + std::to_string(input_block_idx) + ".1";
                     h                = attention_layer_forward(name, ctx, h, context, num_video_frames);  // [N, mult*model_channels, h, w]
@@ -466,7 +484,7 @@ public:
             }
         }
         // [N, 4*model_channels, h/8, w/8]
-
+        // print_ggml_tensor(h, true, "bef mid block");     
         // middle_block
         h = resblock_forward("middle_block.0", ctx, h, emb, num_video_frames);             // [N, 4*model_channels, h/8, w/8]
         h = attention_layer_forward("middle_block.1", ctx, h, context, num_video_frames);  // [N, 4*model_channels, h/8, w/8]
@@ -478,6 +496,7 @@ public:
         }
         int control_offset = controls.size() - 2;
 
+        // print_ggml_tensor(h, true, "bef out block");     
         // output_blocks
         int output_block_idx = 0;
         for (int i = (int)len_mults - 1; i >= 0; i--) {
@@ -540,6 +559,10 @@ struct UNetModelRunner : public GGMLRunner {
 
     std::string get_desc() {
         return "unet";
+    }
+
+    void transform(int n){
+        unet.transform(params_ctx, n, backend);
     }
 
     void get_param_tensors(std::map<std::string, struct ggml_tensor*>& tensors, const std::string prefix) {
