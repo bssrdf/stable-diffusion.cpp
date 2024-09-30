@@ -1195,7 +1195,7 @@ protected:
         for (auto& pair : blocks) {
             auto& block = pair.second;
 
-            block->transform_params(ctx, n, backend);
+            block->transform(ctx, n, backend);
         }
     }
 
@@ -1391,9 +1391,7 @@ protected:
     void init_params(struct ggml_context* ctx, ggml_type wtype) {
         params["weight"] = ggml_new_tensor_4d(ctx, GGML_TYPE_F16, 3, 3, in_channels, out_channels);
         // params["transform"] = ggml_winograd_stage0(ctx, params["weight"]); 
-        trans = ggml_winograd_stage0(ctx, params["weight"]); 
-        // int64_t *ne = trans->ne;
-        // printf("transform: (%ld, %ld, %ld, %ld)\n",  ne[0], ne[1], ne[2], ne[3]);
+        trans = ggml_winograd_stage0(ctx, params["weight"]);
         if (bias) {
             params["bias"] = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, out_channels);
         }
@@ -1410,6 +1408,7 @@ protected:
         ggml_backend_graph_compute(backend, gf);
         params["transform"] = trans;
         ggml_graph_clear(gf);
+        trans->src[0] = NULL; // not elegant!! skip FX during wino_stage1
     }
 
 public:
