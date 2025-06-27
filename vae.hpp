@@ -402,6 +402,7 @@ public:
         auto conv_out    = std::dynamic_pointer_cast<Conv2d>(blocks["conv_out"]);
 
         // conv_in
+        // print_ggml_tensor(z, true, "input to vae decoder: ");
         auto h = conv_in->forward(ctx, z);  // [N, block_in, h, w]
 
         // middle
@@ -430,6 +431,7 @@ public:
 
         h = norm_out->forward(ctx, h);
         h = ggml_silu_inplace(ctx, h);  // nonlinearity/swish
+        // print_ggml_tensor(z, true, "input to vae conv_out: ");
         h = conv_out->forward(ctx, h);  // [N, out_ch, h*8, w*8]
         return h;
     }

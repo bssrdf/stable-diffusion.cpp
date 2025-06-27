@@ -729,7 +729,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_nn_attention_ext(struct ggml_context*
     }
 
     float scale = (1.0f / sqrt((float)d_head));
-
+   
+    int kv_pad = 0;
     // if (flash_attn) {
     //     LOG_DEBUG("attention_ext L_q:%d L_k:%d n_head:%d C:%d d_head:%d N:%d", L_q, L_k, n_head, C, d_head, N);
     // }
@@ -737,28 +738,44 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_nn_attention_ext(struct ggml_context*
     GGML_ASSERT(((L_k % 256 == 0) && L_q == L_k) || !(L_k % 256 == 0));
 
     bool can_use_flash_attn = true;
-    can_use_flash_attn      = can_use_flash_attn && L_k % 256 == 0;
+     if (can_use_flash_attn && L_k % 256 != 0) {
+        if (L_k == 77 || L_k == 4208 || L_k == 3952) {
+            kv_pad = 256 - (L_k % 256);
+        }else {
+            can_use_flash_attn = false;
+        }
+    }
+    // can_use_flash_attn      = can_use_flash_attn && L_k % 256 == 0;
     can_use_flash_attn      = can_use_flash_attn && d_head % 64 == 0;  // double check
 
     // cuda max d_head seems to be 256, cpu does seem to work with 512
     can_use_flash_attn = can_use_flash_attn && d_head <= 256;  // double check
 
     if (mask != nullptr) {
+        // printf("A: %d, %d, %d \n", can_use_flash_attn ? 1:0, mask->ne[2], mask->ne[3]);
         // TODO(Green-Sky): figure out if we can bend t5 to work too
         can_use_flash_attn = can_use_flash_attn && mask->ne[2] == 1;
         can_use_flash_attn = can_use_flash_attn && mask->ne[3] == 1;
+        
     }
 
     // TODO(Green-Sky): more pad or disable for funny tensor shapes
+    // printf("B: %d, %d, %d \n", can_use_flash_attn ? 1:0, L_k, d_head);
 
     ggml_tensor* kqv = nullptr;
     // GGML_ASSERT((flash_attn && can_use_flash_attn) || !flash_attn);
     if (can_use_flash_attn && flash_attn) {
         // LOG_DEBUG("using flash attention");
+        // printf("using flash attention\n");
+        if(kv_pad != 0)
+            k = ggml_pad(ctx, k, 0, kv_pad, 0, 0);
         k = ggml_cast(ctx, k, GGML_TYPE_F16);
 
         v = ggml_cont(ctx, ggml_permute(ctx, v, 0, 2, 1, 3));  // [N, n_head, L_k, d_head]
         v = ggml_reshape_3d(ctx, v, d_head, L_k, n_head * N);  // [N * n_head, L_k, d_head]
+        if (kv_pad != 0) {
+            v = ggml_pad(ctx, v, 0, kv_pad, 0, 0);
+        }
         v = ggml_cast(ctx, v, GGML_TYPE_F16);
 
         kqv = ggml_flash_attn_ext(ctx, q, k, v, mask, scale, 0, 0);
@@ -1349,6 +1366,12 @@ public:
         if (bias) {
             b = params["bias"];
         }
+        
+        // if (kernel_size.first == 3){
+        //     print_ggml_tensor(w, true, "vae conv2d weight: ");
+        //     print_ggml_tensor(x, true, "vae conv2d input: ");
+        // }     
+
         return ggml_nn_conv_2d(ctx, x, w, b, stride.second, stride.first, padding.second, padding.first, dilation.second, dilation.first);
     }
 };

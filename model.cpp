@@ -1040,7 +1040,13 @@ bool ModelLoader::init_from_safetensors_file(const std::string& file_path, const
         if (n_dims == 5) {
             if (ne[3] == 1 && ne[4] == 1) {
                 n_dims = 4;
-            } else {
+            } else if(ne[2] == 1){
+                n_dims = 4;
+                ne[2] = ne[3];
+                ne[3] = ne[4];
+                ne[4] = 1;
+            } 
+            else {
                 LOG_ERROR("invalid tensor '%s'", name.c_str());
                 return false;
             }
