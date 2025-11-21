@@ -1274,7 +1274,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         auto out = ggml_flash_attn_ext(ctx, q_in, k_in, v_in, mask_in, scale / kv_scale, 0, 0);
         // printf("%s, %d: out->type %s \n", __FUNCTION__, __LINE__,
         //             ggml_type_name(out->type)       );
-        ggml_flash_attn_ext_set_prec(out, GGML_PREC_F32);
+        // ggml_flash_attn_ext_set_prec(out, GGML_PREC_F32);
         // printf("%s, %d: out->type %s \n", __FUNCTION__, __LINE__,
         //             ggml_type_name(out->type)       );
         if (kv_scale != 1.0f) {
@@ -1604,8 +1604,8 @@ protected:
     }
 
     void prepare_build_in_tensor_before() {
-        // one_tensor = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_F32, 1);
-        one_tensor = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_F16, 1);
+        one_tensor = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_F32, 1);
+        // one_tensor = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_F16, 1);
         ggml_set_name(one_tensor, "ggml_runner_build_in_tensor:one");
         set_backend_tensor_data(one_tensor, one_vec.data());
     }

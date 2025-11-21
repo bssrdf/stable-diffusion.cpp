@@ -694,7 +694,7 @@ struct UNetModelRunner : public GGMLRunner {
         out = ggml_cast(runner_ctx.ggml_ctx, out, GGML_TYPE_F32);
         ggml_build_forward_expand(gf, out);
 
-        // ggml_graph_print(gf);
+        ggml_graph_print(gf);
 
         return gf;
     }
