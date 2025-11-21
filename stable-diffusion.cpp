@@ -1255,6 +1255,7 @@ public:
                                               diffusion_params,
                                               &out_cond);
             }
+            // printf("AA sampling step %d completed\n", step);
 
             float* negative_data = nullptr;
             if (has_unconditioned) {
@@ -1283,6 +1284,7 @@ public:
                                               &out_img_cond);
                 img_cond_data = (float*)out_img_cond->data;
             }
+            // printf("TT sampling step %d completed\n", step);
 
             int step_count         = sigmas.size();
             bool is_skiplayer_step = has_skiplayer && step > (int)(guidance.slg.layer_start * step_count) && step < (int)(guidance.slg.layer_end * step_count);
@@ -1315,6 +1317,7 @@ public:
                 c_skip = shifted_c_skip * c_in / shifted_c_in;
                 c_out  = shifted_c_out;
             }
+            // printf("XX sampling step %d completed\n", step);
 
             for (int i = 0; i < ne_elements; i++) {
                 float latent_result = positive_data[i];
@@ -1348,6 +1351,7 @@ public:
             if (denoise_mask != nullptr) {
                 apply_mask(denoised, init_latent, denoise_mask);
             }
+            // printf("ZZ sampling step %d completed\n", step);
 
             return denoised;
         };
@@ -1407,8 +1411,8 @@ public:
         if (video) {
             init_latent = ggml_new_tensor_4d(work_ctx, GGML_TYPE_F32, W, H, T, C);
         } else {
-            // init_latent = ggml_new_tensor_4d(work_ctx, GGML_TYPE_F32, W, H, C, 1);
-            init_latent = ggml_new_tensor_4d(work_ctx, GGML_TYPE_F16, W, H, C, 1);
+            init_latent = ggml_new_tensor_4d(work_ctx, GGML_TYPE_F32, W, H, C, 1);
+            // init_latent = ggml_new_tensor_4d(work_ctx, GGML_TYPE_F16, W, H, C, 1);
         }
         ggml_set_f32(init_latent, shift_factor);
         return init_latent;

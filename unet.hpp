@@ -659,7 +659,10 @@ struct UNetModelRunner : public GGMLRunner {
 
         // printf("unet input x type %s (%d,%d,%d,%d) \n", ggml_type_name(x->type),
         //      x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
-        if(y){
+        if(x->type == GGML_TYPE_F32){
+            x = ggml_cast(runner_ctx.ggml_ctx, x, GGML_TYPE_F16);
+        }
+        if(y && y->type == GGML_TYPE_F32    ){
             // printf("unet input y type %s (%d,%d,%d,%d) \n", ggml_type_name(y->type),
             //  y->ne[3], y->ne[2], y->ne[1], y->ne[0]);
             y = ggml_cast(runner_ctx.ggml_ctx, y, GGML_TYPE_F16);
@@ -667,10 +670,13 @@ struct UNetModelRunner : public GGMLRunner {
 
         // printf("unet input timesteps type %s (%d,%d,%d,%d) \n", ggml_type_name(timesteps->type),
         //      timesteps->ne[3], timesteps->ne[2], timesteps->ne[1], timesteps->ne[0]);
-        timesteps = ggml_cast(runner_ctx.ggml_ctx, timesteps, GGML_TYPE_F16);
+        if(timesteps->type == GGML_TYPE_F32){
+            timesteps = ggml_cast(runner_ctx.ggml_ctx, timesteps, GGML_TYPE_F16);
+        }
         // printf("unet input context type %s (%d,%d,%d) \n", ggml_type_name(context->type),
         //      context->ne[2], context->ne[1], context->ne[0]);
-        context = ggml_cast(runner_ctx.ggml_ctx, context, GGML_TYPE_F16);
+        if(context->type == GGML_TYPE_F32)
+            context = ggml_cast(runner_ctx.ggml_ctx, context, GGML_TYPE_F16);
         // if(c_concat)
         //     printf("unet input c_concat  type %s (%d,%d,%d) \n", ggml_type_name(c_concat->type),
         //      c_concat->ne[2], c_concat->ne[1], c_concat->ne[0]);
@@ -685,6 +691,7 @@ struct UNetModelRunner : public GGMLRunner {
                                                controls,
                                                control_strength);
 
+        out = ggml_cast(runner_ctx.ggml_ctx, out, GGML_TYPE_F32);
         ggml_build_forward_expand(gf, out);
 
         // ggml_graph_print(gf);
