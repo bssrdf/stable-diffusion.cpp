@@ -25,6 +25,7 @@
 #include "ggml-cpu.h"
 #include "ggml.h"
 
+
 #include "model.h"
 
 #ifdef SD_USE_CUDA
@@ -950,9 +951,17 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_linear(struct ggml_context* ctx,
                                                       struct ggml_tensor* b,
                                                       bool force_prec_f32 = false,
                                                       float scale         = 1.f) {
+    // ggml_set_name(x, "before linear");
+    // printf("%s, %d: x->type %s w->name %s type %s (%d,%d,%d,%d) (%d,%d,%d,%d)\n", __FUNCTION__, __LINE__,
+                // ggml_type_name(x->type), w->name, ggml_type_name(w->type), x->ne[3], x->ne[2], x->ne[1], x->ne[0],
+        //    w->ne[3], w->ne[2], w->ne[1], w->ne[0]);
     if (scale != 1.f) {
+        // printf("%s, %d: scale = %f \n", __FUNCTION__, __LINE__, scale);
         x = ggml_scale(ctx, x, scale);
     }
+    // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+    //                 ggml_type_name(x->type), x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+            
     if (x->ne[2] * x->ne[3] > 1024) {
         // workaround: avoid ggml cuda error
         int64_t ne2 = x->ne[2];
@@ -963,15 +972,25 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_linear(struct ggml_context* ctx,
     } else {
         x = ggml_mul_mat(ctx, w, x);
     }
+    // printf("%s, %d: x->type %s w->type %s(%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+    //                 ggml_type_name(x->type), ggml_type_name(w->type), x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+            
     if (force_prec_f32) {
+        // printf("%s, %d: force f32 \n", __FUNCTION__, __LINE__);
         ggml_mul_mat_set_prec(x, GGML_PREC_F32);
     }
     if (scale != 1.f) {
         x = ggml_scale(ctx, x, 1.f / scale);
     }
+    // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+    //                 ggml_type_name(x->type), x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+            
     if (b != nullptr) {
         x = ggml_add_inplace(ctx, x, b);
     }
+    // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+    //                 ggml_type_name(x->type), x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+            
     return x;
 }
 
@@ -992,9 +1011,16 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_conv_2d(struct ggml_context* ctx,
                                                        bool direct = false,
                                                        float scale = 1.f) {
     if (scale != 1.f) {
+        // printf("%s, %d: scale = %f \n", __FUNCTION__, __LINE__, scale);
         x = ggml_scale(ctx, x, scale);
     }
+    // printf("(%d,%d,%d,%d),\n", x->ne[2],w->ne[3],x->ne[0],x->ne[1]);
+    // printf("std::make_tuple(%d,%d,%d,%d,3,3),\n", x->ne[2],w->ne[3],x->ne[0],x->ne[1]);
+    // printf("x->type %s w->type %s (%d,%d,%d,%d) \n", ggml_type_name(x->type), ggml_type_name(w->type),
+    //      x->ne[2],w->ne[3],x->ne[0],x->ne[1]);
     if (direct) {
+    // if (x->ne[0] >= 32 || x->ne[1] >= 32){
+    // if (w->type == GGML_TYPE_F16 && w->ne[2] % 8 == 0 ) {
         x = ggml_conv_2d_direct(ctx, w, x, s0, s1, p0, p1, d0, d1);
     } else {
         x = ggml_conv_2d(ctx, w, x, s0, s1, p0, p1, d0, d1);
@@ -1006,6 +1032,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_conv_2d(struct ggml_context* ctx,
         b = ggml_reshape_4d(ctx, b, 1, 1, b->ne[0], 1);
         x = ggml_add_inplace(ctx, x, b);
     }
+    // printf("after bias x->type %s w->type %s (%d,%d,%d,%d) \n", ggml_type_name(x->type), ggml_type_name(w->type),
+    //      x->ne[2],w->ne[3],x->ne[0],x->ne[1]);
     return x;
 }
 
@@ -1029,6 +1057,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_conv_3d(struct ggml_context* ctx,
                                                        int d2 = 1) {
     int64_t OC = w->ne[3] / IC;
     int64_t N  = x->ne[3] / IC;
+    // printf("(N,C,K,D,H,W,KD,KH,KW %zu, %zu, %zu, %zu, %zu, %zu, %zu, %zu, %zu)\n", N, IC, OC,
+    //     x->ne[2], x->ne[1], x->ne[0], w->ne[2], w->ne[1], w->ne[0]);
     x          = ggml_conv_3d(ctx, w, x, IC, s0, s1, s2, p0, p1, p2, d0, d1, d2);
 
     if (b != nullptr) {
@@ -1098,8 +1128,11 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_full(struct ggml_context* ctx,
                                                     int64_t ne2,
                                                     int64_t ne3) {
     auto one = ggml_get_tensor(ctx, "ggml_runner_build_in_tensor:one");
+    // ggml_set_name(one, "full_tensor_one");
     auto t   = ggml_scale(ctx, one, value);                 // [1,]
+    ggml_set_name(t, "full_tensor_one_scaled");
     t        = ggml_repeat_4d(ctx, t, ne0, ne1, ne2, ne3);  // [ne0, ne1, ne2, ne3]
+    // ggml_set_name(t, "full_tensor_t");
     return t;
 }
 
@@ -1202,6 +1235,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         }
         if (kv_scale != 1.0f) {
             k_in = ggml_scale(ctx, k_in, kv_scale);
+            ggml_set_name(k_in, "k_in_scaled_1");
         }
         k_in = ggml_cast(ctx, k_in, GGML_TYPE_F16);
 
@@ -1212,6 +1246,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         }
         if (kv_scale != 1.0f) {
             v_in = ggml_scale(ctx, v_in, kv_scale);
+            ggml_set_name(k_in, "v_in_scaled_1");
         }
         v_in = ggml_cast(ctx, v_in, GGML_TYPE_F16);
 
@@ -1237,7 +1272,11 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         }
 
         auto out = ggml_flash_attn_ext(ctx, q_in, k_in, v_in, mask_in, scale / kv_scale, 0, 0);
+        // printf("%s, %d: out->type %s \n", __FUNCTION__, __LINE__,
+        //             ggml_type_name(out->type)       );
         ggml_flash_attn_ext_set_prec(out, GGML_PREC_F32);
+        // printf("%s, %d: out->type %s \n", __FUNCTION__, __LINE__,
+        //             ggml_type_name(out->type)       );
         if (kv_scale != 1.0f) {
             out = ggml_scale(ctx, out, 1.0f / kv_scale);
         }
@@ -1301,10 +1340,13 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_layer_norm(struct ggml_context* c
                                                           struct ggml_tensor* b,
                                                           float eps = EPS) {
     x = ggml_norm(ctx, x, eps);
+    ggml_set_name(x, "layernorm:norm");
     if (w != nullptr) {
         x = ggml_mul_inplace(ctx, x, w);
+        ggml_set_name(x, "layernorm:mul_w");
         if (b != nullptr) {
             x = ggml_add_inplace(ctx, x, b);
+            ggml_set_name(x, "layernorm:add_b");
         }
     }
     return x;
@@ -1444,8 +1486,14 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_timestep_embedding(
     int dim,
     int max_period    = 10000,
     float time_factor = 1.0f) {
+    // printf("time step scale %f \n", time_factor);
+    if (timesteps->type != GGML_TYPE_F32)
+        timesteps = ggml_cast(ctx, timesteps, GGML_TYPE_F32);
     timesteps = ggml_scale(ctx, timesteps, time_factor);
-    return ggml_timestep_embedding(ctx, timesteps, dim, max_period);
+    ggml_set_name(timesteps, "timestep_scaled");
+    timesteps = ggml_timestep_embedding(ctx, timesteps, dim, max_period);
+    ggml_set_name(timesteps, "timestep_embedding");
+    return ggml_cast(ctx, timesteps, GGML_TYPE_F16);
 }
 
 __STATIC_INLINE__ size_t ggml_tensor_num(ggml_context* ctx) {
@@ -1556,7 +1604,8 @@ protected:
     }
 
     void prepare_build_in_tensor_before() {
-        one_tensor = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_F32, 1);
+        // one_tensor = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_F32, 1);
+        one_tensor = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_F16, 1);
         ggml_set_name(one_tensor, "ggml_runner_build_in_tensor:one");
         set_backend_tensor_data(one_tensor, one_vec.data());
     }
@@ -1863,6 +1912,8 @@ public:
         }
 
         ggml_backend_graph_compute(runtime_backend, gf);
+
+
 #ifdef GGML_PERF
         ggml_graph_print(gf);
 #endif

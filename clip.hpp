@@ -497,6 +497,7 @@ public:
         auto mlp         = std::dynamic_pointer_cast<CLIPMLP>(blocks["mlp"]);
 
         x = ggml_add(ctx->ggml_ctx, x, self_attn->forward(ctx, layer_norm1->forward(ctx, x), mask));
+        ggml_set_name(x, "x+layer_norm1");
         x = ggml_add(ctx->ggml_ctx, x, mlp->forward(ctx, layer_norm2->forward(ctx, x)));
         return x;
     }
@@ -585,16 +586,20 @@ public:
         // input_ids: [N, n_token]
         auto token_embed_weight    = params["token_embedding.weight"];
         auto position_embed_weight = params["position_embedding.weight"];
+        ggml_set_name(token_embed_weight, "token_embed_weight");
+        ggml_set_name(position_embed_weight, "position_embed_weight");
 
         GGML_ASSERT(input_ids->ne[0] == position_embed_weight->ne[1]);
         input_ids            = ggml_reshape_3d(ctx->ggml_ctx, input_ids, input_ids->ne[0], 1, input_ids->ne[1]);
         auto token_embedding = ggml_get_rows(ctx->ggml_ctx, custom_embed_weight != nullptr ? custom_embed_weight : token_embed_weight, input_ids);
         token_embedding      = ggml_reshape_3d(ctx->ggml_ctx, token_embedding, token_embedding->ne[0], token_embedding->ne[1], token_embedding->ne[3]);
+        ggml_set_name(token_embedding, "token_embedding_rshaped");
 
         // token_embedding + position_embedding
         auto x = ggml_add(ctx->ggml_ctx,
                           token_embedding,
                           position_embed_weight);  // [N, n_token, embed_dim]
+        ggml_set_name(x, "token_embedding+position_embedding");
         return x;
     }
 };
@@ -959,6 +964,8 @@ struct CLIPTextModelRunner : public GGMLRunner {
         struct ggml_tensor* hidden_states = forward(&runner_ctx, input_ids, embeddings, max_token_idx, return_pooled, clip_skip);
 
         ggml_build_forward_expand(gf, hidden_states);
+
+        // ggml_graph_print(gf);
 
         return gf;
     }

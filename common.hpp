@@ -321,9 +321,26 @@ public:
         auto k = to_k->forward(ctx, context);  // [N, n_context, inner_dim]
         auto v = to_v->forward(ctx, context);  // [N, n_context, inner_dim]
 
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //             ggml_type_name(x->type),
+        //                         x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+        // printf("%s, %d: q->type %s k->type %s, v->type %s \n", __FUNCTION__, __LINE__,
+        //             ggml_type_name(q->type), ggml_type_name(k->type),
+        //                         ggml_type_name(v->type) );
+
+
         x = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, q, k, v, n_head, nullptr, false, false, ctx->flash_attn_enabled);  // [N, n_token, inner_dim]
 
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //             ggml_type_name(x->type),
+        //                         x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
         x = to_out_0->forward(ctx, x);  // [N, n_token, query_dim]
+
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
         return x;
     }
 };
@@ -379,23 +396,71 @@ public:
 
             auto x_skip = x;
             x           = norm_in->forward(ctx, x);
+            // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+            //  ggml_type_name(x->type),
+            //             x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
             x           = ff_in->forward(ctx, x);
+            // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+            //  ggml_type_name(x->type),
+            //             x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
             // self.is_res is always True
             x = ggml_add(ctx->ggml_ctx, x, x_skip);
+            // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+            //  ggml_type_name(x->type),
+            //             x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
         }
 
         auto r = x;
         x      = norm1->forward(ctx, x);
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
         x      = attn1->forward(ctx, x, x);  // self-attention
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
         x      = ggml_add(ctx->ggml_ctx, x, r);
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
         r      = x;
         x      = norm2->forward(ctx, x);
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
         x      = attn2->forward(ctx, x, context);  // cross-attention
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
         x      = ggml_add(ctx->ggml_ctx, x, r);
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
         r      = x;
         x      = norm3->forward(ctx, x);
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
         x      = ff->forward(ctx, x);
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
         x      = ggml_add(ctx->ggml_ctx, x, r);
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
 
         return x;
     }
@@ -460,15 +525,25 @@ public:
         int64_t inner_dim = n_head * d_head;
 
         x = norm->forward(ctx, x);
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
         if (use_linear) {
             x = ggml_cont(ctx->ggml_ctx, ggml_permute(ctx->ggml_ctx, x, 1, 2, 0, 3));  // [N, h, w, inner_dim]
             x = ggml_reshape_3d(ctx->ggml_ctx, x, inner_dim, w * h, n);                // [N, h * w, inner_dim]
+            // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+            //         ggml_type_name(x->type), x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
             x = proj_in->forward(ctx, x);                                              // [N, inner_dim, h, w]
+            // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+            //         ggml_type_name(x->type), x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
         } else {
             x = proj_in->forward(ctx, x);                                              // [N, inner_dim, h, w]
             x = ggml_cont(ctx->ggml_ctx, ggml_permute(ctx->ggml_ctx, x, 1, 2, 0, 3));  // [N, h, w, inner_dim]
             x = ggml_reshape_3d(ctx->ggml_ctx, x, inner_dim, w * h, n);                // [N, h * w, inner_dim]
         }
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d)  linear %d \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0], use_linear?1:0);
 
         for (int i = 0; i < depth; i++) {
             std::string name       = "transformer_blocks." + std::to_string(i);
@@ -477,6 +552,10 @@ public:
             x = transformer_block->forward(ctx, x, context);
         }
 
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+
         if (use_linear) {
             // proj_out
             x = proj_out->forward(ctx, x);  // [N, in_channels, h, w]
@@ -490,8 +569,15 @@ public:
             // proj_out
             x = proj_out->forward(ctx, x);  // [N, in_channels, h, w]
         }
+        // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
 
         x = ggml_add(ctx->ggml_ctx, x, x_in);
+
+        // printf("%s, %d: x->type %s x_in->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //      ggml_type_name(x->type), ggml_type_name(x_in->type),
+        //                 x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
         return x;
     }
 };
