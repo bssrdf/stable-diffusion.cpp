@@ -445,7 +445,11 @@ public:
 
         if (y != nullptr) {
             if (y->ne[1] != x->ne[3]) {
+            //   printf("Before repeat y->type %s (%d, %d, %d, %d) \n", ggml_type_name(y->type),
+            //          y->ne[3], y->ne[2], y->ne[1], y->ne[0]);
                 y = ggml_repeat(ctx->ggml_ctx, y, ggml_new_tensor_2d(ctx->ggml_ctx, GGML_TYPE_F32, y->ne[0], x->ne[3]));
+                // printf("After repeat y->type %s (%d, %d, %d, %d) \n", ggml_type_name(y->type),
+                //      y->ne[3], y->ne[2], y->ne[1], y->ne[0]);
             }
         }
 
@@ -474,6 +478,7 @@ public:
             auto label_embed_2 = std::dynamic_pointer_cast<Linear>(blocks["label_emb.0.2"]);
 
             auto label_emb = label_embed_0->forward(ctx, y);
+            ggml_set_name(label_emb, "label_emb_0");
             label_emb      = ggml_silu_inplace(ctx->ggml_ctx, label_emb);
             label_emb      = label_embed_2->forward(ctx, label_emb);  // [N, time_embed_dim]
 
@@ -485,7 +490,7 @@ public:
 
         // input block 0
         auto h = input_blocks_0_0->forward(ctx, x);
-        
+
         // printf("after input block 0 h->type %s (%d,%d,%d,%d) \n", ggml_type_name(h->type),
         //      h->ne[3], h->ne[2], h->ne[1], h->ne[0]);
 
@@ -645,6 +650,26 @@ struct UNetModelRunner : public GGMLRunner {
             num_video_frames = x->ne[3];
         }
 
+        struct ggml_tensor* output = timesteps;
+
+        float * data = (float *)ggml_get_data(output);
+        float vmin = 1.e10, vmax= -1.e10;
+        printf("y [");
+        for(int i = 0; i < ggml_nelements(output); i++){
+            // float val = __half2float(data1[i]);
+            float val = data[i];
+            // vmin = min(vmin, val);
+            // vmax = max(vmax, val);
+            vmin = vmin<val?vmin:val;
+            vmax = vmax>val?vmax:val;
+            printf("%.3f, ", val);
+        }
+        printf("]\n");
+            // if(std::isnan(data[i]) || std::isinf(data[i])){
+            //     printf("Warning: context has nan or inf values at index %d: %f\n", i, data[i]);
+            //     break;
+            // }
+
         x         = to_backend(x);
         context   = to_backend(context);
         y         = to_backend(y);
@@ -690,11 +715,11 @@ struct UNetModelRunner : public GGMLRunner {
                                                num_video_frames,
                                                controls,
                                                control_strength);
-
-        out = ggml_cast(runner_ctx.ggml_ctx, out, GGML_TYPE_F32);
+        if(out->type != GGML_TYPE_F32)
+            out = ggml_cast(runner_ctx.ggml_ctx, out, GGML_TYPE_F32);
         ggml_build_forward_expand(gf, out);
 
-        ggml_graph_print(gf);
+        // ggml_graph_print(gf);
 
         return gf;
     }
