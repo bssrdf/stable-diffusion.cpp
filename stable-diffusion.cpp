@@ -1207,7 +1207,13 @@ public:
             }
 
             timesteps_vec  = process_timesteps(timesteps_vec, init_latent, denoise_mask);
+            // for(int i = 0; i < timesteps_vec.size(); i++) {
+            //     printf("A timestep[%d]: %.4f\n", i, timesteps_vec[i]);
+            // }
             auto timesteps = vector_to_ggml_tensor(work_ctx, timesteps_vec);
+            // for(int i = 0; i < ggml_nelements(timesteps); i++) {
+            //     printf("B timestep[%d]: %f\n", i, ((float*)timesteps->data)[i]);
+            // }
             std::vector<float> guidance_vec(1, guidance.distilled_guidance);
             auto guidance_tensor = vector_to_ggml_tensor(work_ctx, guidance_vec);
 
@@ -1272,6 +1278,9 @@ public:
                                               diffusion_params,
                                               &out_uncond);
                 negative_data = (float*)out_uncond->data;
+                // for(int i = 0; i < ggml_nelements(out_uncond); i++) {
+                //     printf("negative [%d]: %f\n", i, negative_data[i]);
+                // }
             }
 
             float* img_cond_data = nullptr;

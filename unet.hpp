@@ -427,6 +427,17 @@ public:
         // c_concat: [N, in_channels, h, w] or [1, in_channels, h, w]
         // y: [N, adm_in_channels] or [1, adm_in_channels]
         // return: [N, out_channels, h, w]
+
+        if(x->type == GGML_TYPE_F32){
+            x = ggml_cast(ctx->ggml_ctx, x, GGML_TYPE_F16);
+        }
+        if(y && y->type == GGML_TYPE_F32){
+            y = ggml_cast(ctx->ggml_ctx, y, GGML_TYPE_F16);
+        }
+        if(context->type == GGML_TYPE_F32)
+            context = ggml_cast(ctx->ggml_ctx, context, GGML_TYPE_F16);
+
+
         if (context != nullptr) {
             if (context->ne[2] != x->ne[3]) {
                 context = ggml_repeat(ctx->ggml_ctx, context, ggml_new_tensor_3d(ctx->ggml_ctx, GGML_TYPE_F32, context->ne[0], context->ne[1], x->ne[3]));
@@ -465,12 +476,16 @@ public:
 
         auto out_0 = std::dynamic_pointer_cast<GroupNorm32>(blocks["out.0"]);
         auto out_2 = std::dynamic_pointer_cast<Conv2d>(blocks["out.2"]);
+        ggml_set_name(timesteps, "timesteps_as_input");
 
         auto t_emb = ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, model_channels);  // [N, model_channels]
+
+        ggml_set_name(t_emb, "timesteps_embedding");
 
         auto emb = time_embed_0->forward(ctx, t_emb);
         emb      = ggml_silu_inplace(ctx->ggml_ctx, emb);
         emb      = time_embed_2->forward(ctx, emb);  // [N, time_embed_dim]
+        ggml_set_name(emb, "time_embed_2");
 
         // SDXL/SVD
         if (y != nullptr) {
@@ -508,9 +523,15 @@ public:
                 h                = resblock_forward(name, ctx, h, emb, num_video_frames);  // [N, mult*model_channels, h, w]
                 // printf("AA input blocks %d, %d middle block h->type %s (%d,%d,%d,%d) \n", i, j, ggml_type_name(h->type),
                 //         h->ne[3], h->ne[2], h->ne[1], h->ne[0]);
+                std::string resblock_name = "input_block_" + std::to_string(input_block_idx) + "_resblock";
+                ggml_set_name(h, resblock_name.c_str());
+                // printf("Set name %s \n", resblock_name.c_str());
                 if (std::find(attention_resolutions.begin(), attention_resolutions.end(), ds) != attention_resolutions.end()) {
                     std::string name = "input_blocks." + std::to_string(input_block_idx) + ".1";
                     h                = attention_layer_forward(name, ctx, h, context, num_video_frames);  // [N, mult*model_channels, h, w]
+                    // std::string resblock_name = "input_block_att_" + std::to_string(input_block_idx) + "_resblock";
+                    // ggml_set_name(h, resblock_name.c_str());
+                    // printf("Set name %s \n", resblock_name.c_str());
                 }
                 // printf("BB input blocks %d, %d middle block h->type %s (%d,%d,%d,%d) \n", i, j, ggml_type_name(h->type),
                 //         h->ne[3], h->ne[2], h->ne[1], h->ne[0]);
@@ -527,8 +548,9 @@ public:
 
                 std::string name = "input_blocks." + std::to_string(input_block_idx) + ".0";
                 auto block       = std::dynamic_pointer_cast<DownSampleBlock>(blocks[name]);
-
+                std::string resblock_name = "input_block_" + std::to_string(input_block_idx) + "_resblock";
                 h = block->forward(ctx, h);  // [N, mult*model_channels, h/(2^(i+1)), w/(2^(i+1))]
+                ggml_set_name(h, resblock_name.c_str());
                 hs.push_back(h);
             }
             // printf("end of input blocks %d middle block h->type %s (%d,%d,%d,%d) \n", i, ggml_type_name(h->type),
@@ -539,6 +561,8 @@ public:
         // printf("before middle block h->type %s (%d,%d,%d,%d) \n", ggml_type_name(h->type),
         //      h->ne[3], h->ne[2], h->ne[1], h->ne[0]);
 
+        ggml_set_name(h, "before-middle-block");
+
         // middle_block
         if (version != VERSION_SD1_TINY_UNET) {
             h = resblock_forward("middle_block.0", ctx, h, emb, num_video_frames);  // [N, 4*model_channels, h/8, w/8]
@@ -547,6 +571,8 @@ public:
                 h = resblock_forward("middle_block.2", ctx, h, emb, num_video_frames);             // [N, 4*model_channels, h/8, w/8]
             }
         }
+
+        ggml_set_name(h, "after-middle-block");
         if (controls.size() > 0) {
             auto cs = ggml_scale_inplace(ctx->ggml_ctx, controls[controls.size() - 1], control_strength);
             h       = ggml_add(ctx->ggml_ctx, h, cs);  // middle control
@@ -578,6 +604,11 @@ public:
                 std::string name = "output_blocks." + std::to_string(output_block_idx) + ".0";
 
                 h = resblock_forward(name, ctx, h, emb, num_video_frames);
+                std::string resblock_name = "out_block_" + std::to_string(output_block_idx) + "_resblock";
+                ggml_set_name(h, resblock_name.c_str());
+                // std::string resblock1_name = "out_block_" + std::to_string(output_block_idx) +
+                //              "_" + std::to_string(i) +"_" + std::to_string(j) +  "_resblock";
+                // printf("Set name %s \n", resblock1_name.c_str());
 
                 int up_sample_idx = 1;
                 if (std::find(attention_resolutions.begin(), attention_resolutions.end(), ds) != attention_resolutions.end()) {
@@ -597,8 +628,10 @@ public:
                     }
                     std::string name = "output_blocks." + std::to_string(output_block_idx) + "." + std::to_string(up_sample_idx);
                     auto block       = std::dynamic_pointer_cast<UpSampleBlock>(blocks[name]);
+                    // printf("Set name %s \n", name.c_str());
 
                     h = block->forward(ctx, h);
+                    ggml_set_name(h, name.c_str());
 
                     ds /= 2;
                 }
@@ -607,9 +640,12 @@ public:
             }
         }
 
+        ggml_set_name(h, "last-3");
         // out
         h = out_0->forward(ctx, h);
+        ggml_set_name(h, "last-2");
         h = ggml_silu_inplace(ctx->ggml_ctx, h);
+        ggml_set_name(h, "last-1");
         h = out_2->forward(ctx, h);
         ggml_set_name(h, "bench-end");
         return h;  // [N, out_channels, h, w]
@@ -650,21 +686,21 @@ struct UNetModelRunner : public GGMLRunner {
             num_video_frames = x->ne[3];
         }
 
-        struct ggml_tensor* output = timesteps;
+        // struct ggml_tensor* output = timesteps;
 
-        float * data = (float *)ggml_get_data(output);
-        float vmin = 1.e10, vmax= -1.e10;
-        printf("y [");
-        for(int i = 0; i < ggml_nelements(output); i++){
-            // float val = __half2float(data1[i]);
-            float val = data[i];
-            // vmin = min(vmin, val);
-            // vmax = max(vmax, val);
-            vmin = vmin<val?vmin:val;
-            vmax = vmax>val?vmax:val;
-            printf("%.3f, ", val);
-        }
-        printf("]\n");
+        // float * data = (float *)ggml_get_data(output);
+        // float vmin = 1.e10, vmax= -1.e10;
+        // printf("y [");
+        // for(int i = 0; i < ggml_nelements(output); i++){
+        //     // float val = __half2float(data1[i]);
+        //     float val = data[i];
+        //     // vmin = min(vmin, val);
+        //     // vmax = max(vmax, val);
+        //     vmin = vmin<val?vmin:val;
+        //     vmax = vmax>val?vmax:val;
+        //     printf("%.3f, ", val);
+        // }
+        // printf("]\n");
             // if(std::isnan(data[i]) || std::isinf(data[i])){
             //     printf("Warning: context has nan or inf values at index %d: %f\n", i, data[i]);
             //     break;
@@ -684,24 +720,24 @@ struct UNetModelRunner : public GGMLRunner {
 
         // printf("unet input x type %s (%d,%d,%d,%d) \n", ggml_type_name(x->type),
         //      x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
-        if(x->type == GGML_TYPE_F32){
-            x = ggml_cast(runner_ctx.ggml_ctx, x, GGML_TYPE_F16);
-        }
-        if(y && y->type == GGML_TYPE_F32    ){
-            // printf("unet input y type %s (%d,%d,%d,%d) \n", ggml_type_name(y->type),
-            //  y->ne[3], y->ne[2], y->ne[1], y->ne[0]);
-            y = ggml_cast(runner_ctx.ggml_ctx, y, GGML_TYPE_F16);
-        }
+        // if(x->type == GGML_TYPE_F32){
+        //     x = ggml_cast(runner_ctx.ggml_ctx, x, GGML_TYPE_F16);
+        // }
+        // if(y && y->type == GGML_TYPE_F32    ){
+        //     y = ggml_cast(runner_ctx.ggml_ctx, y, GGML_TYPE_F16);
+        // }
 
         // printf("unet input timesteps type %s (%d,%d,%d,%d) \n", ggml_type_name(timesteps->type),
         //      timesteps->ne[3], timesteps->ne[2], timesteps->ne[1], timesteps->ne[0]);
-        if(timesteps->type == GGML_TYPE_F32){
-            timesteps = ggml_cast(runner_ctx.ggml_ctx, timesteps, GGML_TYPE_F16);
-        }
+        // ggml_set_name(timesteps, "timesteps_as_input");
+        // if(timesteps->type == GGML_TYPE_F32){
+        //     timesteps = ggml_cast(runner_ctx.ggml_ctx, timesteps, GGML_TYPE_F16);
+        // }
+
         // printf("unet input context type %s (%d,%d,%d) \n", ggml_type_name(context->type),
         //      context->ne[2], context->ne[1], context->ne[0]);
-        if(context->type == GGML_TYPE_F32)
-            context = ggml_cast(runner_ctx.ggml_ctx, context, GGML_TYPE_F16);
+        // if(context->type == GGML_TYPE_F32)
+        //     context = ggml_cast(runner_ctx.ggml_ctx, context, GGML_TYPE_F16);
         // if(c_concat)
         //     printf("unet input c_concat  type %s (%d,%d,%d) \n", ggml_type_name(c_concat->type),
         //      c_concat->ne[2], c_concat->ne[1], c_concat->ne[0]);
@@ -718,6 +754,9 @@ struct UNetModelRunner : public GGMLRunner {
         if(out->type != GGML_TYPE_F32)
             out = ggml_cast(runner_ctx.ggml_ctx, out, GGML_TYPE_F32);
         ggml_build_forward_expand(gf, out);
+
+        // printf("graph size %d \n", ggml_graph_size(gf));
+
 
         // ggml_graph_print(gf);
 

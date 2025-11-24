@@ -1215,6 +1215,17 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         k = ggml_reshape_3d(ctx, k, d_head, L_k, n_kv_head * N);   // [N * n_kv_head, L_k, d_head]
 
         v = ggml_reshape_4d(ctx, v, d_head, n_kv_head, L_k, N);  // [N, L_k, n_kv_head, d_head]
+        // int64_t *ne = q->ne;
+        // printf("q->type %s, (%zu, %zu, %zu, %zu) \n",
+        //             ggml_type_name(q->type), ne[0], ne[1], ne[2], ne[3]);
+
+        // ne = k->ne;
+        // printf("k->type %s, (%zu, %zu, %zu, %zu) \n",
+        //             ggml_type_name(k->type), ne[0], ne[1], ne[2], ne[3]);
+
+        // ne = v->ne;
+        // printf("v->type %s, (%zu, %zu, %zu, %zu) \n",
+        //             ggml_type_name(v->type), ne[0], ne[1], ne[2], ne[3]);
     } else {
         L_q       = q->ne[1];
         L_k       = k->ne[1];
@@ -1272,8 +1283,9 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         }
 
         auto out = ggml_flash_attn_ext(ctx, q_in, k_in, v_in, mask_in, scale / kv_scale, 0, 0);
-        // printf("%s, %d: out->type %s \n", __FUNCTION__, __LINE__,
-        //             ggml_type_name(out->type)       );
+        // int64_t *ne = out->ne;
+        // printf("FA->type %s, %f, (%zu, %zu, %zu, %zu) \n",
+        //             ggml_type_name(out->type), scale / kv_scale, ne[0], ne[1], ne[2], ne[3]);
         // ggml_flash_attn_ext_set_prec(out, GGML_PREC_F32);
         // printf("%s, %d: out->type %s \n", __FUNCTION__, __LINE__,
         //             ggml_type_name(out->type)       );
@@ -1364,11 +1376,13 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_group_norm(struct ggml_context* c
 
     const float eps = 1e-6f;  // default eps parameter
     x               = ggml_group_norm(ctx, x, num_groups, eps);
+    ggml_set_name(x, "groupnorm_norm");
     if (w != nullptr && b != nullptr) {
         x = ggml_mul_inplace(ctx, x, w);
         // b = ggml_repeat(ctx, b, x);
         x = ggml_add_inplace(ctx, x, b);
     }
+    ggml_set_name(x, "after_groupnorm_norm");
     return x;
 }
 
@@ -1912,6 +1926,47 @@ public:
         }
 
         ggml_backend_graph_compute(runtime_backend, gf);
+
+        // for (int i = 0; i < gf->n_nodes; i++) {
+        //     struct ggml_tensor * t1 = gf->nodes[i];
+        //     struct ggml_cgraph g1v = ggml_graph_view(gf, i, i + 1);
+        //     ggml_backend_graph_compute(runtime_backend, &g1v);
+        // }
+
+        // const char* t_name = "time_embed_2";
+        // const char* t_name = "label_emb_0";
+        // const char* t_name = "timesteps_as_input";
+        // const char* t_name = "timesteps_embedding";
+        // const char* t_name = "timestep_scaled";
+        // struct ggml_tensor *intermediate = ggml_get_tensor(compute_ctx, t_name);
+        // if(intermediate != nullptr){
+        //     printf("%s, %s [", t_name, ggml_type_name(intermediate->type));
+        //     if(intermediate->type == GGML_TYPE_F32){
+        //         std::vector<float>  f32_data(ggml_nelements(intermediate));
+        //         ggml_backend_tensor_get(intermediate, f32_data.data(), 0, ggml_nbytes(intermediate));
+        //         float vmin = 1.e10, vmax= -1.e10;
+        //         for(int i = 0; i < f32_data.size() ; i++) {
+        //             float val = f32_data[i];
+        //             vmin = vmin < val ? vmin : val;
+        //             vmax = vmax > val ? vmax : val;
+        //             printf("%f, ", val);
+        //         }
+        //         printf("]\n");
+        //     } else if(intermediate->type == GGML_TYPE_F16){
+        //         std::vector<ggml_fp16_t> data(ggml_nelements(intermediate));
+        //         ggml_backend_tensor_get(intermediate, data.data(), 0, ggml_nbytes(intermediate));
+        //         std::vector<float>  f32_data(data.size());
+        //         ggml_fp16_to_fp32_row(data.data(), f32_data.data(), data.size());
+        //         float vmin = 1.e10, vmax= -1.e10;
+        //         for(int i = 0; i < f32_data.size() ; i++) {
+        //             float val = f32_data[i];
+        //             vmin = vmin < val ? vmin : val;
+        //             vmax = vmax > val ? vmax : val;
+        //             printf("%f, ", val);
+        //         }
+        //         printf("]\n");
+        //    }
+        // }
 
 
 #ifdef GGML_PERF
