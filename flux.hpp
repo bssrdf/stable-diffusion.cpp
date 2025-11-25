@@ -1073,6 +1073,27 @@ namespace Flux {
             // pe: (L, d_head/2, 2, 2)
             // return: (N, C, H, W)
 
+            if(x->type == GGML_TYPE_F32){
+                x = ggml_cast(ctx->ggml_ctx, x, GGML_TYPE_F16);
+            }
+            if(y && y->type == GGML_TYPE_F32){
+                y = ggml_cast(ctx->ggml_ctx, y, GGML_TYPE_F16);
+            }
+            if(context->type == GGML_TYPE_F32){
+                context = ggml_cast(ctx->ggml_ctx, context, GGML_TYPE_F16);
+            }
+            if(pe && pe->type == GGML_TYPE_F32){
+                pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_F16);
+            }
+            if(guidance && guidance->type == GGML_TYPE_F32){
+                guidance = ggml_cast(ctx->ggml_ctx, guidance, GGML_TYPE_F16);
+            }
+            if(mod_index_arange && mod_index_arange->type == GGML_TYPE_F32){
+                mod_index_arange = ggml_cast(ctx->ggml_ctx, mod_index_arange, GGML_TYPE_F16);
+            }
+            if(dct && dct->type == GGML_TYPE_F32){
+                dct = ggml_cast(ctx->ggml_ctx, dct, GGML_TYPE_F16);
+            }
             if (params.version == VERSION_CHROMA_RADIANCE) {
                 return forward_chroma_radiance(ctx,
                                                x,
