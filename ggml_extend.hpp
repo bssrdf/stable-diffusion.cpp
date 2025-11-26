@@ -1352,13 +1352,13 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_layer_norm(struct ggml_context* c
                                                           struct ggml_tensor* b,
                                                           float eps = EPS) {
     x = ggml_norm(ctx, x, eps);
-    ggml_set_name(x, "layernorm:norm");
+    // ggml_set_name(x, "layernorm:norm");
     if (w != nullptr) {
         x = ggml_mul_inplace(ctx, x, w);
-        ggml_set_name(x, "layernorm:mul_w");
+        // ggml_set_name(x, "layernorm:mul_w");
         if (b != nullptr) {
             x = ggml_add_inplace(ctx, x, b);
-            ggml_set_name(x, "layernorm:add_b");
+            // ggml_set_name(x, "layernorm:add_b");
         }
     }
     return x;
