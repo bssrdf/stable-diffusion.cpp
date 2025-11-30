@@ -1191,7 +1191,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
                                                              bool diag_mask_inf       = false,
                                                              bool skip_reshape        = false,
                                                              bool flash_attn          = false,
-                                                             float kv_scale           = 1.0f) {  // avoid overflow
+                                                             float kv_scale           = 1.0f,
+                                                             ggml_type kv_type = GGML_TYPE_F16) {  // avoid overflow
     int64_t L_q;
     int64_t L_k;
     int64_t C;
@@ -1248,7 +1249,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
             k_in = ggml_scale(ctx, k_in, kv_scale);
             ggml_set_name(k_in, "k_in_scaled_1");
         }
-        k_in = ggml_cast(ctx, k_in, GGML_TYPE_F16);
+        if(k_in->type == kv_type)
+            k_in = ggml_cast(ctx, k_in, kv_type);
 
         v_in = ggml_ext_cont(ctx, ggml_permute(ctx, v_in, 0, 2, 1, 3));
         v_in = ggml_reshape_3d(ctx, v_in, d_head, L_k, n_kv_head * N);
@@ -1259,7 +1261,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
             v_in = ggml_scale(ctx, v_in, kv_scale);
             ggml_set_name(k_in, "v_in_scaled_1");
         }
-        v_in = ggml_cast(ctx, v_in, GGML_TYPE_F16);
+        if(v_in->type != kv_type)
+            v_in = ggml_cast(ctx, v_in, kv_type);
 
         if (mask_in != nullptr) {
             mask_in = ggml_transpose(ctx, mask_in);
@@ -1499,7 +1502,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_timestep_embedding(
     struct ggml_tensor* timesteps,
     int dim,
     int max_period    = 10000,
-    float time_factor = 1.0f) {
+    float time_factor = 1.0f,
+    ggml_type timestep_type = GGML_TYPE_F16) {
     // printf("time step scale %f \n", time_factor);
     if (timesteps->type != GGML_TYPE_F32)
         timesteps = ggml_cast(ctx, timesteps, GGML_TYPE_F32);
@@ -1507,7 +1511,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_timestep_embedding(
     ggml_set_name(timesteps, "timestep_scaled");
     timesteps = ggml_timestep_embedding(ctx, timesteps, dim, max_period);
     ggml_set_name(timesteps, "timestep_embedding");
-    return ggml_cast(ctx, timesteps, GGML_TYPE_F16);
+    // return ggml_cast(ctx, timesteps, GGML_TYPE_F16);
+    return ggml_cast(ctx, timesteps, timestep_type);
 }
 
 __STATIC_INLINE__ size_t ggml_tensor_num(ggml_context* ctx) {

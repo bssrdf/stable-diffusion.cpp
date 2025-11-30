@@ -817,6 +817,8 @@ struct T5Runner : public GGMLRunner {
 
         ggml_build_forward_expand(gf, hidden_states);
 
+        // ggml_graph_print(gf);
+
         return gf;
     }
 

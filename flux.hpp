@@ -838,13 +838,13 @@ namespace Flux {
             if (params.is_chroma) {
                 int64_t mod_index_length = 344;
                 auto approx              = std::dynamic_pointer_cast<ChromaApproximator>(blocks["distilled_guidance_layer"]);
-                auto distill_timestep    = ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, 16, 10000, 1000.f);
-                auto distill_guidance    = ggml_ext_timestep_embedding(ctx->ggml_ctx, guidance, 16, 10000, 1000.f);
+                auto distill_timestep    = ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, 16, 10000, 1000.f, GGML_TYPE_BF16);
+                auto distill_guidance    = ggml_ext_timestep_embedding(ctx->ggml_ctx, guidance, 16, 10000, 1000.f, GGML_TYPE_BF16);
 
                 // auto mod_index_arange  = ggml_arange(ctx, 0, (float)mod_index_length, 1);
                 // ggml_arange tot working on a lot of backends, precomputing it on CPU instead
                 GGML_ASSERT(mod_index_arange != nullptr);
-                auto modulation_index = ggml_ext_timestep_embedding(ctx->ggml_ctx, mod_index_arange, 32, 10000, 1000.f);  // [1, 344, 32]
+                auto modulation_index = ggml_ext_timestep_embedding(ctx->ggml_ctx, mod_index_arange, 32, 10000, 1000.f, GGML_TYPE_BF16);  // [1, 344, 32]
 
                 // Batch broadcast (will it ever be useful)
                 modulation_index = ggml_repeat(ctx->ggml_ctx, modulation_index, ggml_new_tensor_3d(ctx->ggml_ctx, GGML_TYPE_F32, modulation_index->ne[0], modulation_index->ne[1], img->ne[2]));  // [N, 344, 32]
@@ -863,12 +863,12 @@ namespace Flux {
             } else {
                 auto time_in   = std::dynamic_pointer_cast<MLPEmbedder>(blocks["time_in"]);
                 auto vector_in = std::dynamic_pointer_cast<MLPEmbedder>(blocks["vector_in"]);
-                vec            = time_in->forward(ctx, ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, 256, 10000, 1000.f));
+                vec            = time_in->forward(ctx, ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, 256, 10000, 1000.f, GGML_TYPE_BF16));
                 if (params.guidance_embed) {
                     GGML_ASSERT(guidance != nullptr);
                     auto guidance_in = std::dynamic_pointer_cast<MLPEmbedder>(blocks["guidance_in"]);
                     // bf16 and fp16 result is different
-                    auto g_in = ggml_ext_timestep_embedding(ctx->ggml_ctx, guidance, 256, 10000, 1000.f);
+                    auto g_in = ggml_ext_timestep_embedding(ctx->ggml_ctx, guidance, 256, 10000, 1000.f, GGML_TYPE_BF16);
                     vec       = ggml_add(ctx->ggml_ctx, vec, guidance_in->forward(ctx, g_in));
                 }
 
@@ -1073,26 +1073,35 @@ namespace Flux {
             // pe: (L, d_head/2, 2, 2)
             // return: (N, C, H, W)
 
+            // printf("flux input x type %s (%d,%d,%d,%d) \n", ggml_type_name(x->type),
+            //   x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+            // printf("flux input y type %s (%d,%d,%d,%d) \n", ggml_type_name(y->type),
+            //   y->ne[3], y->ne[2], y->ne[1], y->ne[0]);
+            // printf("flux input context type %s (%d,%d,%d,%d) \n", ggml_type_name(context->type),
+            //   context->ne[3], context->ne[2], context->ne[1], context->ne[0]);
+            // printf("flux input pe type %s (%d,%d,%d,%d) \n", ggml_type_name(pe->type),
+            //   pe->ne[3], pe->ne[2], pe->ne[1], pe->ne[0]);
+
             if(x->type == GGML_TYPE_F32){
-                x = ggml_cast(ctx->ggml_ctx, x, GGML_TYPE_F16);
+                x = ggml_cast(ctx->ggml_ctx, x, GGML_TYPE_BF16);
             }
             if(y && y->type == GGML_TYPE_F32){
-                y = ggml_cast(ctx->ggml_ctx, y, GGML_TYPE_F16);
+                y = ggml_cast(ctx->ggml_ctx, y, GGML_TYPE_BF16);
             }
             if(context->type == GGML_TYPE_F32){
-                context = ggml_cast(ctx->ggml_ctx, context, GGML_TYPE_F16);
+                context = ggml_cast(ctx->ggml_ctx, context, GGML_TYPE_BF16);
             }
             if(pe && pe->type == GGML_TYPE_F32){
-                pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_F16);
+                pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_BF16);
             }
             if(guidance && guidance->type == GGML_TYPE_F32){
-                guidance = ggml_cast(ctx->ggml_ctx, guidance, GGML_TYPE_F16);
+                guidance = ggml_cast(ctx->ggml_ctx, guidance, GGML_TYPE_BF16);
             }
             if(mod_index_arange && mod_index_arange->type == GGML_TYPE_F32){
-                mod_index_arange = ggml_cast(ctx->ggml_ctx, mod_index_arange, GGML_TYPE_F16);
+                mod_index_arange = ggml_cast(ctx->ggml_ctx, mod_index_arange, GGML_TYPE_BF16);
             }
             if(dct && dct->type == GGML_TYPE_F32){
-                dct = ggml_cast(ctx->ggml_ctx, dct, GGML_TYPE_F16);
+                dct = ggml_cast(ctx->ggml_ctx, dct, GGML_TYPE_BF16);
             }
             if (params.version == VERSION_CHROMA_RADIANCE) {
                 return forward_chroma_radiance(ctx,

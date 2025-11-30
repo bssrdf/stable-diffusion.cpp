@@ -1274,6 +1274,11 @@ struct FluxCLIPEmbedder : public Conditioner {
                 std::vector<float> chunk_weights(t5_weights.begin() + chunk_idx * chunk_len,
                                                  t5_weights.begin() + (chunk_idx + 1) * chunk_len);
 
+                LOG_DEBUG(" T5 %u %u ", chunk_tokens.size(), chunk_weights.size());
+                // for(int i =0; i < chunk_tokens.size(); ++i){
+                //     LOG_DEBUG(" token %d: %d", i, chunk_tokens[i]);
+                // }
+
                 auto input_ids = vector_to_ggml_tensor_i32(work_ctx, chunk_tokens);
 
                 t5->compute(n_threads,
@@ -1297,6 +1302,7 @@ struct FluxCLIPEmbedder : public Conditioner {
                     ggml_ext_tensor_scale_inplace(tensor, (original_mean / new_mean));
                 }
             } else {
+                LOG_DEBUG(" not T5");
                 chunk_hidden_states = ggml_new_tensor_2d(work_ctx, GGML_TYPE_F32, 4096, chunk_len);
                 ggml_set_f32(chunk_hidden_states, 0.f);
             }
@@ -1537,6 +1543,24 @@ struct T5CLIPEmbedder : public Conditioner {
                                         hidden_states,
                                         chunk_hidden_states->ne[0],
                                         ggml_nelements(hidden_states) / chunk_hidden_states->ne[0]);
+
+        struct ggml_tensor* output = hidden_states;
+        // struct ggml_tensor* output = cond.c_crossattn;
+        printf("flux input c_crossatten type %s (%d,%d,%d,%d) \n", ggml_type_name(output->type),
+              output->ne[3], output->ne[2], output->ne[1], output->ne[0]);
+        float * data = (float *)ggml_get_data(output);
+        float vmin = 1.e10, vmax= -1.e10;
+        printf("x [");
+        for(int i = 0; i < ggml_nelements(output); i++){
+            // float val = __half2float(data1[i]);
+            float val = data[i];
+            // vmin = min(vmin, val);
+            // vmax = max(vmax, val);
+            vmin = vmin<val?vmin:val;
+            vmax = vmax>val?vmax:val;
+            printf("%.3f, ", val);
+        }
+        printf("]vmin,vmax %f, %f\n", vmin,vmax);
 
         modify_mask_to_attend_padding(t5_attn_mask, ggml_nelements(t5_attn_mask), mask_pad);
 

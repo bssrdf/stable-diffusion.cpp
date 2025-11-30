@@ -281,16 +281,19 @@ protected:
     int64_t context_dim;
     int64_t n_head;
     int64_t d_head;
+    ggml_type kv_type;
 
 public:
     CrossAttention(int64_t query_dim,
                    int64_t context_dim,
                    int64_t n_head,
-                   int64_t d_head)
+                   int64_t d_head,
+                   ggml_type kv_t = GGML_TYPE_F16)
         : n_head(n_head),
           d_head(d_head),
           query_dim(query_dim),
-          context_dim(context_dim) {
+          context_dim(context_dim),
+          kv_type(kv_t) {
         int64_t inner_dim = d_head * n_head;
 
         blocks["to_q"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, false));
@@ -329,7 +332,7 @@ public:
         //                         ggml_type_name(v->type) );
 
 
-        x = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, q, k, v, n_head, nullptr, false, false, ctx->flash_attn_enabled);  // [N, n_token, inner_dim]
+        x = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, q, k, v, n_head, nullptr, false, false, ctx->flash_attn_enabled, kv_type);  // [N, n_token, inner_dim]
 
         // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
         //             ggml_type_name(x->type),
@@ -350,21 +353,23 @@ protected:
     int64_t n_head;
     int64_t d_head;
     bool ff_in;
+    ggml_type kv_type;
 
 public:
     BasicTransformerBlock(int64_t dim,
                           int64_t n_head,
                           int64_t d_head,
                           int64_t context_dim,
-                          bool ff_in = false)
-        : n_head(n_head), d_head(d_head), ff_in(ff_in) {
+                          bool ff_in = false,
+                          ggml_type kv_t = GGML_TYPE_F16)
+        : n_head(n_head), d_head(d_head), ff_in(ff_in), kv_type(kv_t) {
         // disable_self_attn is always False
         // disable_temporal_crossattention is always False
         // switch_temporal_ca_to_sa is always False
         // inner_dim is always None or equal to dim
         // gated_ff is always True
-        blocks["attn1"] = std::shared_ptr<GGMLBlock>(new CrossAttention(dim, dim, n_head, d_head));
-        blocks["attn2"] = std::shared_ptr<GGMLBlock>(new CrossAttention(dim, context_dim, n_head, d_head));
+        blocks["attn1"] = std::shared_ptr<GGMLBlock>(new CrossAttention(dim, dim, n_head, d_head, kv_type));
+        blocks["attn2"] = std::shared_ptr<GGMLBlock>(new CrossAttention(dim, context_dim, n_head, d_head, kv_type));
         blocks["ff"]    = std::shared_ptr<GGMLBlock>(new FeedForward(dim, dim));
         blocks["norm1"] = std::shared_ptr<GGMLBlock>(new LayerNorm(dim));
         blocks["norm2"] = std::shared_ptr<GGMLBlock>(new LayerNorm(dim));
@@ -474,6 +479,7 @@ protected:
     int64_t depth       = 1;    // 1
     int64_t context_dim = 768;  // hidden_size, 1024 for VERSION_SD2
     bool use_linear     = false;
+    ggml_type kv_type;
 
 public:
     SpatialTransformer(int64_t in_channels,
@@ -481,13 +487,15 @@ public:
                        int64_t d_head,
                        int64_t depth,
                        int64_t context_dim,
-                       bool use_linear)
+                       bool use_linear,
+                       ggml_type kv_t = GGML_TYPE_F16)
         : in_channels(in_channels),
           n_head(n_head),
           d_head(d_head),
           depth(depth),
           context_dim(context_dim),
-          use_linear(use_linear) {
+          use_linear(use_linear),
+          kv_type(kv_t) {
         // disable_self_attn is always False
         int64_t inner_dim = n_head * d_head;  // in_channels
         blocks["norm"]    = std::shared_ptr<GGMLBlock>(new GroupNorm32(in_channels));
@@ -499,7 +507,7 @@ public:
 
         for (int i = 0; i < depth; i++) {
             std::string name = "transformer_blocks." + std::to_string(i);
-            blocks[name]     = std::shared_ptr<GGMLBlock>(new BasicTransformerBlock(inner_dim, n_head, d_head, context_dim, false));
+            blocks[name]     = std::shared_ptr<GGMLBlock>(new BasicTransformerBlock(inner_dim, n_head, d_head, context_dim, false, kv_type));
         }
 
         if (use_linear) {

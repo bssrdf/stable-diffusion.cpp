@@ -365,13 +365,14 @@ public:
                             "try either disabling flash attention or specifying "
                             "--chroma-disable-dit-mask as a workaround.");
                     }
-
+                    LOG_INFO("using T5Clip");
                     cond_stage_model = std::make_shared<T5CLIPEmbedder>(clip_backend,
                                                                         offload_params_to_cpu,
                                                                         tensor_storage_map,
                                                                         sd_ctx_params->chroma_use_t5_mask,
                                                                         sd_ctx_params->chroma_t5_mask_pad);
                 } else {
+                    LOG_INFO("using FluxClip");
                     cond_stage_model = std::make_shared<FluxCLIPEmbedder>(clip_backend,
                                                                           offload_params_to_cpu,
                                                                           tensor_storage_map);
@@ -1152,6 +1153,24 @@ public:
         if (noise) {
             x = denoiser->noise_scaling(sigmas[0], noise, x);
         }
+
+        // struct ggml_tensor* output = x;
+        // struct ggml_tensor* output = cond.c_crossattn;
+        // printf("flux input c_crossatten type %s (%d,%d,%d,%d) \n", ggml_type_name(output->type),
+        //       output->ne[3], output->ne[2], output->ne[1], output->ne[0]);
+        // float * data = (float *)ggml_get_data(output);
+        // float vmin = 1.e10, vmax= -1.e10;
+        // printf("x [");
+        // for(int i = 0; i < ggml_nelements(output); i++){
+        //     // float val = __half2float(data1[i]);
+        //     float val = data[i];
+        //     // vmin = min(vmin, val);
+        //     // vmax = max(vmax, val);
+        //     vmin = vmin<val?vmin:val;
+        //     vmax = vmax>val?vmax:val;
+        //     // printf("%.3f, ", val);
+        // }
+        // printf("]vmin,vmax %f, %f\n", vmin,vmax);
 
         struct ggml_tensor* noised_input = ggml_dup_tensor(work_ctx, x);
 
