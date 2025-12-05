@@ -1249,8 +1249,9 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
             k_in = ggml_scale(ctx, k_in, kv_scale);
             ggml_set_name(k_in, "k_in_scaled_1");
         }
-        if(k_in->type == kv_type)
+        if(k_in->type != kv_type){
             k_in = ggml_cast(ctx, k_in, kv_type);
+        }
 
         v_in = ggml_ext_cont(ctx, ggml_permute(ctx, v_in, 0, 2, 1, 3));
         v_in = ggml_reshape_3d(ctx, v_in, d_head, L_k, n_kv_head * N);
@@ -1261,8 +1262,9 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
             v_in = ggml_scale(ctx, v_in, kv_scale);
             ggml_set_name(k_in, "v_in_scaled_1");
         }
-        if(v_in->type != kv_type)
+        if(v_in->type != kv_type){
             v_in = ggml_cast(ctx, v_in, kv_type);
+        }
 
         if (mask_in != nullptr) {
             mask_in = ggml_transpose(ctx, mask_in);
