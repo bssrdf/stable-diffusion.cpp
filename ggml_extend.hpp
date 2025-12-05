@@ -1126,8 +1126,13 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_full(struct ggml_context* ctx,
                                                     int64_t ne0,
                                                     int64_t ne1,
                                                     int64_t ne2,
-                                                    int64_t ne3) {
-    auto one = ggml_get_tensor(ctx, "ggml_runner_build_in_tensor:one");
+                                                    int64_t ne3,
+                                                    ggml_type type = GGML_TYPE_F32) {
+    struct ggml_tensor *one;
+    if (type == GGML_TYPE_F32)
+       one = ggml_get_tensor(ctx, "ggml_runner_build_in_tensor:one");
+    else if (type == GGML_TYPE_F16)
+       one = ggml_get_tensor(ctx, "ggml_runner_build_in_tensor:onef16");
     // ggml_set_name(one, "full_tensor_one");
     auto t   = ggml_scale(ctx, one, value);                 // [1,]
     ggml_set_name(t, "full_tensor_one_scaled");
@@ -1140,16 +1145,18 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_zeros(struct ggml_context* ctx,
                                                      int64_t ne0,
                                                      int64_t ne1,
                                                      int64_t ne2,
-                                                     int64_t ne3) {
-    return ggml_ext_full(ctx, 0.f, ne0, ne1, ne2, ne3);
+                                                     int64_t ne3,
+                                                     ggml_type type = GGML_TYPE_F32) {
+    return ggml_ext_full(ctx, 0.f, ne0, ne1, ne2, ne3, type);
 }
 
 __STATIC_INLINE__ struct ggml_tensor* ggml_ext_ones(struct ggml_context* ctx,
                                                     int64_t ne0,
                                                     int64_t ne1,
                                                     int64_t ne2,
-                                                    int64_t ne3) {
-    return ggml_ext_full(ctx, 1.f, ne0, ne1, ne2, ne3);
+                                                    int64_t ne3,
+                                                    ggml_type type = GGML_TYPE_F32) {
+    return ggml_ext_full(ctx, 1.f, ne0, ne1, ne2, ne3, type);
 }
 
 // q: [N * n_head, n_token, d_head]
@@ -1270,8 +1277,11 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
             mask_in = ggml_transpose(ctx, mask_in);
         } else {
             if (kv_pad > 0) {
-                mask_in         = ggml_ext_zeros(ctx, L_k, L_q, 1, 1);
-                auto pad_tensor = ggml_ext_full(ctx, -INFINITY, kv_pad, L_q, 1, 1);
+                // mask_in         = ggml_ext_zeros(ctx, L_k, L_q, 1, 1);
+                // auto pad_tensor = ggml_ext_full(ctx, -INFINITY, kv_pad, L_q, 1, 1);
+                // mask_in         = ggml_concat(ctx, mask_in, pad_tensor, 0);
+                mask_in         = ggml_ext_zeros(ctx, L_k, L_q, 1, 1,  GGML_TYPE_F16);
+                auto pad_tensor = ggml_ext_full(ctx, -INFINITY, kv_pad, L_q, 1, 1, GGML_TYPE_F16);
                 mask_in         = ggml_concat(ctx, mask_in, pad_tensor, 0);
             }
         }
@@ -1284,7 +1294,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
             if (mask_pad > 0) {
                 mask_in = ggml_pad(ctx, mask_in, 0, mask_pad, 0, 0);
             }
-            mask_in = ggml_cast(ctx, mask_in, GGML_TYPE_F16);
+            if(mask_in->type != GGML_TYPE_F16)
+                mask_in = ggml_cast(ctx, mask_in, GGML_TYPE_F16);
         }
 
         auto out = ggml_flash_attn_ext(ctx, q_in, k_in, v_in, mask_in, scale / kv_scale, 0, 0);
@@ -1556,7 +1567,10 @@ protected:
     struct ggml_gallocr* compute_allocr = nullptr;
 
     std::vector<float> one_vec = {1.f};
-    ggml_tensor* one_tensor    = nullptr;
+    std::vector<ggml_fp16_t> one_vec_f16 = {(ggml_fp16_t)1.f};
+
+    ggml_tensor* one_tensor        = nullptr;
+    ggml_tensor* one_tensor_f16    = nullptr;
 
     std::map<struct ggml_tensor*, const void*> backend_tensor_data_map;
     std::map<std::string, struct ggml_tensor*> cache_tensor_map;  // name -> tensor
@@ -1628,11 +1642,14 @@ protected:
         one_tensor = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_F32, 1);
         // one_tensor = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_F16, 1);
         ggml_set_name(one_tensor, "ggml_runner_build_in_tensor:one");
-        set_backend_tensor_data(one_tensor, one_vec.data());
+        one_tensor_f16 = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_F16, 1);
+        set_backend_tensor_data(one_tensor_f16, one_vec_f16.data());
+        ggml_set_name(one_tensor_f16, "ggml_runner_build_in_tensor:onef16");
     }
 
     void prepare_build_in_tensor_after(struct ggml_cgraph* gf) {
         ggml_build_forward_expand(gf, one_tensor);
+        ggml_build_forward_expand(gf, one_tensor_f16);
     }
 
     struct ggml_cgraph* get_compute_graph(get_graph_cb_t get_graph) {
