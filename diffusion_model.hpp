@@ -22,6 +22,7 @@ struct DiffusionParams {
     struct ggml_tensor* vace_context          = nullptr;
     float vace_strength                       = 1.f;
     std::vector<int> skip_layers              = {};
+    bool freeze_graph                         = false;
 };
 
 struct DiffusionModel {
@@ -93,7 +94,8 @@ struct UNetModel : public DiffusionModel {
                             diffusion_params.y,
                             diffusion_params.num_video_frames,
                             diffusion_params.controls,
-                            diffusion_params.control_strength, output, output_ctx);
+                            diffusion_params.control_strength, output, output_ctx,
+                            diffusion_params.freeze_graph);
     }
 };
 
@@ -211,7 +213,8 @@ struct FluxModel : public DiffusionModel {
                             diffusion_params.increase_ref_index,
                             output,
                             output_ctx,
-                            diffusion_params.skip_layers);
+                            diffusion_params.skip_layers,
+                            diffusion_params.freeze_graph);
     }
 };
 

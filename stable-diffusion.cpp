@@ -1202,7 +1202,7 @@ public:
 
         int64_t t0 = ggml_time_us();
 
-        auto denoise = [&](ggml_tensor* input, float sigma, int step) -> ggml_tensor* {
+        auto denoise = [&](ggml_tensor* input, float sigma, int step, int steps = -1) -> ggml_tensor* {
             if (step == 1 || step == -1) {
                 pretty_progress(0, (int)steps, 0);
             }
@@ -1264,6 +1264,12 @@ public:
             diffusion_params.vace_context       = vace_context;
             diffusion_params.vace_strength      = vace_strength;
 
+            if ( step < steps ) {
+                diffusion_params.freeze_graph = true;
+            } else  {//if ( step == steps ){
+                diffusion_params.freeze_graph = false;
+            }
+
             if (start_merge_step == -1 || step <= start_merge_step) {
                 // cond
                 diffusion_params.context  = cond.c_crossattn;
@@ -1280,6 +1286,7 @@ public:
                                               diffusion_params,
                                               &out_cond);
             }
+
             // printf("AA sampling step %d completed\n", step);
 
             float* negative_data = nullptr;

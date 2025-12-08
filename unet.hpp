@@ -773,7 +773,8 @@ struct UNetModelRunner : public GGMLRunner {
                  std::vector<struct ggml_tensor*> controls = {},
                  float control_strength                    = 0.f,
                  struct ggml_tensor** output               = nullptr,
-                 struct ggml_context* output_ctx           = nullptr) {
+                 struct ggml_context* output_ctx           = nullptr,
+                 bool freeze_graph = false) {
         // x: [N, in_channels, h, w]
         // timesteps: [N, ]
         // context: [N, max_position, hidden_size]([N, 77, 768]) or [1, max_position, hidden_size]
@@ -783,7 +784,7 @@ struct UNetModelRunner : public GGMLRunner {
             return build_graph(x, timesteps, context, c_concat, y, num_video_frames, controls, control_strength);
         };
 
-        GGMLRunner::compute(get_graph, n_threads, false, output, output_ctx);
+        GGMLRunner::compute(get_graph, n_threads, false, output, output_ctx, freeze_graph);
     }
 
     void test() {
