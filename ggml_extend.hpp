@@ -2159,7 +2159,7 @@ protected:
         }
         params["weight"] = ggml_new_tensor_2d(ctx, wtype, in_features, out_features);
         if (bias) {
-            enum ggml_type wtype = GGML_TYPE_F32;
+            // enum ggml_type wtype = GGML_TYPE_F32;
             params["bias"]       = ggml_new_tensor_1d(ctx, wtype, out_features);
         }
     }
