@@ -991,7 +991,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_linear(struct ggml_context* ctx,
         // printf("%s, %d: BIAS x->type %s (%d,%d,%d,%d) (%d, %d, %d, %d)\n", __FUNCTION__, __LINE__,
         //         ggml_type_name(x->type), x->ne[3], x->ne[2], x->ne[1], x->ne[0],
         //         b->ne[3], b->ne[2], b->ne[1], b->ne[0]);
-        x = ggml_add_inplace(ctx, x, b);
+        // x = ggml_add_inplace(ctx, x, b);
+        x = ggml_add(ctx, x, b);
     }
     // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
     //                 ggml_type_name(x->type), x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
