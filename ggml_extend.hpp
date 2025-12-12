@@ -1402,9 +1402,11 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_group_norm(struct ggml_context* c
     x               = ggml_group_norm(ctx, x, num_groups, eps);
     ggml_set_name(x, "groupnorm_norm");
     if (w != nullptr && b != nullptr) {
-        x = ggml_mul_inplace(ctx, x, w);
+        // x = ggml_mul_inplace(ctx, x, w);
+        x = ggml_mul(ctx, x, w);
         // b = ggml_repeat(ctx, b, x);
-        x = ggml_add_inplace(ctx, x, b);
+        // x = ggml_add_inplace(ctx, x, b);
+        x = ggml_add(ctx, x, b);
     }
     ggml_set_name(x, "after_groupnorm_norm");
     return x;
