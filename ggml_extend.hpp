@@ -1036,7 +1036,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_conv_2d(struct ggml_context* ctx,
     }
     if (b != nullptr) {
         b = ggml_reshape_4d(ctx, b, 1, 1, b->ne[0], 1);
-        x = ggml_add_inplace(ctx, x, b);
+        // x = ggml_add_inplace(ctx, x, b);
+        x = ggml_add(ctx, x, b);
     }
     // printf("after bias x->type %s w->type %s (%d,%d,%d,%d) \n", ggml_type_name(x->type), ggml_type_name(w->type),
     //      x->ne[2],w->ne[3],x->ne[0],x->ne[1]);
