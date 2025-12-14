@@ -541,7 +541,6 @@ public:
                     control_net->set_conv2d_direct_enabled(true);
                 }
             }
-            LOG_INFO("after control");
 
             if (strstr(SAFE_STR(sd_ctx_params->photo_maker_path), "v2")) {
                 pmid_model = std::make_shared<PhotoMakerIDEncoder>(backend,
@@ -578,20 +577,16 @@ public:
                 }
                 pmid_model->get_param_tensors(tensors, "pmid");
             }
-            LOG_INFO("after PMID");
         }
 
         struct ggml_init_params params;
         params.mem_size   = static_cast<size_t>(10 * 1024) * 1024;  // 10M
         params.mem_buffer = nullptr;
         params.no_alloc   = false;
-        // LOG_DEBUG("mem_size %u ", params.mem_size);
-        LOG_INFO("mem_size %u ", params.mem_size);
+        LOG_DEBUG("mem_size %u ", params.mem_size);
         struct ggml_context* ctx = ggml_init(params);  // for  alphas_cumprod and is_using_v_parameterization check
-        LOG_INFO("loading weights 1");
         GGML_ASSERT(ctx != nullptr);
         ggml_tensor* alphas_cumprod_tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, TIMESTEPS);
-        LOG_INFO("loading weights 2");
         calculate_alphas_cumprod((float*)alphas_cumprod_tensor->data);
 
         // load weights
@@ -616,9 +611,7 @@ public:
         if (version == VERSION_SVD) {
             ignore_tensors.insert("conditioner.embedders.3");
         }
-        LOG_INFO("loading tensors \n");
         bool success = model_loader.load_tensors(tensors, ignore_tensors, n_threads);
-        LOG_INFO(" tensor loaded \n");
         if (!success) {
             LOG_ERROR("load tensors from model loader failed");
             ggml_free(ctx);

@@ -232,7 +232,7 @@ public:
         }
 
         // input_blocks
-        blocks["input_blocks.0.0"] = std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, model_channels, {3, 3}, {1, 1}, {1, 1}));
+        blocks["input_blocks.0.0"] = std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, model_channels, {3, 3}, {1, 1}, {1, 1},{1, 1}, true, true));
 
         std::vector<int> input_block_chans;
         input_block_chans.push_back(model_channels);
@@ -245,7 +245,7 @@ public:
                 return new VideoResBlock(channels, emb_channels, out_channels);
             } else {
                 // return new ResBlock(channels, emb_channels, out_channels);
-                return new ResBlock(channels, emb_channels, out_channels, {3, 3}, 2, false, false, true);
+                return new ResBlock(channels, emb_channels, out_channels, {3, 3}, 2, false, false, false);
             }
         };
 
@@ -298,7 +298,7 @@ public:
             if (i != len_mults - 1) {
                 input_block_idx += 1;
                 std::string name = "input_blocks." + std::to_string(input_block_idx) + ".0";
-                blocks[name]     = std::shared_ptr<GGMLBlock>(new DownSampleBlock(ch, ch));
+                blocks[name]     = std::shared_ptr<GGMLBlock>(new DownSampleBlock(ch, ch, false));
 
                 input_block_chans.push_back(ch);
                 ds *= 2;
@@ -378,7 +378,7 @@ public:
         // out
         blocks["out.0"] = std::shared_ptr<GGMLBlock>(new GroupNorm32(ch));  // ch == model_channels
         // out_1 is nn.SiLU()
-        blocks["out.2"] = std::shared_ptr<GGMLBlock>(new Conv2d(model_channels, out_channels, {3, 3}, {1, 1}, {1, 1}));
+        blocks["out.2"] = std::shared_ptr<GGMLBlock>(new Conv2d(model_channels, out_channels, {3, 3}, {1, 1}, {1, 1}, {1, 1}, true, true));
     }
 
     struct ggml_tensor* resblock_forward(std::string name,
@@ -792,7 +792,7 @@ struct UNetModelRunner : public GGMLRunner {
             if (ggml_backend_is_cpu(params_backend)) {
                 ggml_backend_cpu_set_n_threads(params_backend, n_threads);
             }
-
+            // printf("transform weight to NHWC\n");
             ggml_backend_graph_compute(params_backend, gf);
 
             preprocessed_weight = true;

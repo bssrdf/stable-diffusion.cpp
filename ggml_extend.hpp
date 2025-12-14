@@ -2265,7 +2265,7 @@ protected:
         params["weight"]     = ggml_new_tensor_4d(ctx, wtype, kernel_size.second, kernel_size.first, in_channels, out_channels);
 #ifdef SD_USE_CUDA
         if(to_NHWC_layout){
-            printf("transforming kennel tensor \n");
+            // printf("transforming kennel tensor \n");
             struct ggml_tensor* t = params["weight"];
             params["weight_nhwc"]  =  ggml_cont(ctx, ggml_permute(ctx, t, 1, 2, 0, 3));
             t = params["weight_nhwc"];
@@ -2307,8 +2307,10 @@ public:
     struct ggml_tensor* forward(GGMLRunnerContext* ctx, struct ggml_tensor* x) {
         struct ggml_tensor* w = nullptr;
 #ifdef SD_USE_CUDA
-        if(to_NHWC_layout)
+        if(to_NHWC_layout){
+            // printf("use NHWC kernel\n");
             w = params["weight_nhwc"];
+        }
         else
             w = params["weight"];
 #else
