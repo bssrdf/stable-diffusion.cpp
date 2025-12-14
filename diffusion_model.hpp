@@ -38,6 +38,7 @@ struct DiffusionModel {
     virtual size_t get_params_buffer_size()                                             = 0;
     virtual int64_t get_adm_in_channels()                                               = 0;
     virtual void set_flash_attn_enabled(bool enabled)                                   = 0;
+    virtual void preprocess(int nthreads){ }
 };
 
 struct UNetModel : public DiffusionModel {
@@ -80,6 +81,10 @@ struct UNetModel : public DiffusionModel {
 
     void set_flash_attn_enabled(bool enabled) {
         unet.set_flash_attention_enabled(enabled);
+    }
+
+    void preprocess(int nthreads){
+        unet.preprocess(nthreads);
     }
 
     void compute(int n_threads,

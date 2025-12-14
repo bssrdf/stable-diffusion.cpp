@@ -244,7 +244,8 @@ public:
             if (version == VERSION_SVD) {
                 return new VideoResBlock(channels, emb_channels, out_channels);
             } else {
-                return new ResBlock(channels, emb_channels, out_channels);
+                // return new ResBlock(channels, emb_channels, out_channels);
+                return new ResBlock(channels, emb_channels, out_channels, {3, 3}, 2, false, false, true);
             }
         };
 
@@ -365,7 +366,7 @@ public:
                         }
                     }
                     std::string name = "output_blocks." + std::to_string(output_block_idx) + "." + std::to_string(up_sample_idx);
-                    blocks[name]     = std::shared_ptr<GGMLBlock>(new UpSampleBlock(ch, ch));
+                    blocks[name]     = std::shared_ptr<GGMLBlock>(new UpSampleBlock(ch, ch, false));
 
                     ds /= 2;
                 }
@@ -761,6 +762,43 @@ struct UNetModelRunner : public GGMLRunner {
         // ggml_graph_print(gf);
 
         return gf;
+    }
+
+    struct ggml_cgraph* build_preprocess_graph() {
+#ifdef SD_USE_CUDA
+        struct ggml_cgraph* gf = ggml_new_graph_custom(params_ctx, UNET_GRAPH_SIZE, false);
+
+        struct ggml_tensor * first = ggml_get_first_tensor(params_ctx);
+        for (struct ggml_tensor * t = first; t != NULL; t = ggml_get_next_tensor(params_ctx, t)) {
+            if (strcmp(t->name, "conv2d_weight_nhwc") == 0) {
+            //    ggml_set_NHWC_layout(t);
+               ggml_build_forward_expand(gf, t);
+            }
+        }
+
+        return gf;
+#else
+        return NULL;
+#endif
+    }
+
+    void preprocess(int n_threads) {
+
+#ifdef SD_USE_CUDA
+
+        struct ggml_cgraph* gf = build_preprocess_graph();
+        if(!preprocessed_weight){
+
+            if (ggml_backend_is_cpu(params_backend)) {
+                ggml_backend_cpu_set_n_threads(params_backend, n_threads);
+            }
+
+            ggml_backend_graph_compute(params_backend, gf);
+
+            preprocessed_weight = true;
+        }
+#endif
+
     }
 
     void compute(int n_threads,

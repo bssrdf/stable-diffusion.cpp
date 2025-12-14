@@ -19,7 +19,8 @@ public:
         if (vae_downsample) {
             blocks["conv"] = std::shared_ptr<GGMLBlock>(new Conv2d(channels, out_channels, {3, 3}, {2, 2}, {0, 0}));
         } else {
-            blocks["op"] = std::shared_ptr<GGMLBlock>(new Conv2d(channels, out_channels, {3, 3}, {2, 2}, {1, 1}));
+            // blocks["op"] = std::shared_ptr<GGMLBlock>(new Conv2d(channels, out_channels, {3, 3}, {2, 2}, {1, 1}));
+            blocks["op"] = std::shared_ptr<GGMLBlock>(new Conv2d(channels, out_channels, {3, 3}, {2, 2}, {1, 1}, {1, 1}, true, true));
         }
     }
 
@@ -43,13 +44,18 @@ class UpSampleBlock : public GGMLBlock {
 protected:
     int channels;
     int out_channels;
+    bool vae_upsample;
 
 public:
     UpSampleBlock(int channels,
-                  int out_channels)
+                  int out_channels,
+                  bool vae)
         : channels(channels),
-          out_channels(out_channels) {
-        blocks["conv"] = std::shared_ptr<GGMLBlock>(new Conv2d(channels, out_channels, {3, 3}, {1, 1}, {1, 1}));
+          out_channels(out_channels), vae_upsample(vae) {
+            if(vae)
+               blocks["conv"] = std::shared_ptr<GGMLBlock>(new Conv2d(channels, out_channels, {3, 3}, {1, 1}, {1, 1}));
+            else
+               blocks["conv"] = std::shared_ptr<GGMLBlock>(new Conv2d(channels, out_channels, {3, 3}, {1, 1}, {1, 1}, {1, 1}, true, true));
     }
 
     struct ggml_tensor* forward(GGMLRunnerContext* ctx, struct ggml_tensor* x) {
@@ -72,6 +78,7 @@ protected:
     int dims;
     bool skip_t_emb;
     bool exchange_temb_dims;
+    bool vae_res;
 
     std::shared_ptr<GGMLBlock> conv_nd(int dims,
                                        int64_t in_channels,
@@ -82,7 +89,10 @@ protected:
         if (dims == 3) {
             return std::shared_ptr<GGMLBlock>(new Conv3dnx1x1(in_channels, out_channels, kernel_size.first, 1, padding.first));
         } else {
-            return std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, out_channels, kernel_size, {1, 1}, padding));
+            if(vae_res)
+                return std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, out_channels, kernel_size, {1, 1}, padding));
+            else
+                return std::shared_ptr<GGMLBlock>(new Conv2d(in_channels, out_channels, kernel_size, {1, 1}, padding, {1, 1}, true, true));
         }
     }
 
@@ -93,14 +103,16 @@ public:
              std::pair<int, int> kernel_size = {3, 3},
              int dims                        = 2,
              bool exchange_temb_dims         = false,
-             bool skip_t_emb                 = false)
+             bool skip_t_emb                 = false,
+             bool vae                        = false)
         : channels(channels),
           emb_channels(emb_channels),
           out_channels(out_channels),
           kernel_size(kernel_size),
           dims(dims),
           skip_t_emb(skip_t_emb),
-          exchange_temb_dims(exchange_temb_dims) {
+          exchange_temb_dims(exchange_temb_dims),
+          vae_res(vae) {
         std::pair<int, int> padding = {kernel_size.first / 2, kernel_size.second / 2};
         blocks["in_layers.0"]       = std::shared_ptr<GGMLBlock>(new GroupNorm32(channels));
         // in_layer_1 is nn.SILU()

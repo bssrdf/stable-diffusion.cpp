@@ -410,7 +410,7 @@ public:
             }
             if (i != 0) {
                 std::string name = "up." + std::to_string(i) + ".upsample";
-                blocks[name]     = std::shared_ptr<GGMLBlock>(new UpSampleBlock(block_in, block_in));
+                blocks[name]     = std::shared_ptr<GGMLBlock>(new UpSampleBlock(block_in, block_in, true));
             }
         }
 

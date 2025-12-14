@@ -1590,6 +1590,8 @@ protected:
     bool flash_attn_enabled    = false;
     bool conv2d_direct_enabled = false;
 
+    bool preprocessed_weight   = false;
+
     void alloc_params_ctx() {
         struct ggml_init_params params;
         params.mem_size   = static_cast<size_t>(MAX_PARAMS_TENSOR_NUM * ggml_tensor_overhead());
@@ -1838,6 +1840,10 @@ public:
             params_backend = runtime_backend;
         }
     }
+
+    virtual void preprocess(int n_threads) {
+       return;
+    };
 
     virtual ~GGMLRunner() {
         free_params_buffer();
@@ -2251,11 +2257,22 @@ protected:
     std::pair<int, int> padding;
     std::pair<int, int> dilation;
     bool bias;
+    bool to_NHWC_layout;
     float scale = 1.f;
 
     void init_params(struct ggml_context* ctx, const String2TensorStorage& tensor_storage_map, const std::string prefix = "") override {
         enum ggml_type wtype = GGML_TYPE_F16;
         params["weight"]     = ggml_new_tensor_4d(ctx, wtype, kernel_size.second, kernel_size.first, in_channels, out_channels);
+#ifdef SD_USE_CUDA
+        if(to_NHWC_layout){
+            printf("transforming kennel tensor \n");
+            struct ggml_tensor* t = params["weight"];
+            params["weight_nhwc"]  =  ggml_cont(ctx, ggml_permute(ctx, t, 1, 2, 0, 3));
+            t = params["weight_nhwc"];
+            ggml_set_NHWC_layout(t);
+            ggml_set_name(t, "conv2d_weight_nhwc");
+        }
+#endif
         if (bias) {
             enum ggml_type wtype = GGML_TYPE_F32;
             params["bias"]       = ggml_new_tensor_1d(ctx, wtype, out_channels);
@@ -2269,14 +2286,15 @@ public:
            std::pair<int, int> stride   = {1, 1},
            std::pair<int, int> padding  = {0, 0},
            std::pair<int, int> dilation = {1, 1},
-           bool bias                    = true)
+           bool bias                    = true,
+           bool nhwc                    = false)
         : in_channels(in_channels),
           out_channels(out_channels),
           kernel_size(kernel_size),
           stride(stride),
           padding(padding),
           dilation(dilation),
-          bias(bias) {}
+          bias(bias), to_NHWC_layout(nhwc){}
 
     void set_scale(float scale_value) {
         scale = scale_value;
@@ -2287,7 +2305,15 @@ public:
     }
 
     struct ggml_tensor* forward(GGMLRunnerContext* ctx, struct ggml_tensor* x) {
-        struct ggml_tensor* w = params["weight"];
+        struct ggml_tensor* w = nullptr;
+#ifdef SD_USE_CUDA
+        if(to_NHWC_layout)
+            w = params["weight_nhwc"];
+        else
+            w = params["weight"];
+#else
+        w = params["weight"];
+#endif
         struct ggml_tensor* b = nullptr;
         if (bias) {
             b = params["bias"];
