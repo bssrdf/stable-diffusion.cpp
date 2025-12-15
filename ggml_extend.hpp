@@ -2267,10 +2267,14 @@ protected:
         if(to_NHWC_layout){
             // printf("transforming kennel tensor \n");
             struct ggml_tensor* t = params["weight"];
-            params["weight_nhwc"]  =  ggml_cont(ctx, ggml_permute(ctx, t, 1, 2, 0, 3));
-            t = params["weight_nhwc"];
+            t =  ggml_cont(ctx, ggml_permute(ctx, t, 1, 2, 0, 3));
+            params["weight_nhwc"] = t;
+            // t = params["weight_nhwc"];
             ggml_set_NHWC_layout(t);
             ggml_set_name(t, "conv2d_weight_nhwc");
+            // params["weight_nhwc"]     = ggml_new_tensor_4d(ctx, wtype, in_channels, kernel_size.second, kernel_size.first, out_channels);
+            // ggml_set_NHWC_layout(params["weight_nhwc"]);
+            // ggml_set_name(params["weight_nhwc"], "conv2d_weight_nhwc");
         }
 #endif
         if (bias) {

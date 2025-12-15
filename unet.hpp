@@ -795,6 +795,18 @@ struct UNetModelRunner : public GGMLRunner {
             // printf("transform weight to NHWC\n");
             ggml_backend_graph_compute(params_backend, gf);
 
+            std::map<std::string, struct ggml_tensor*> tensors;
+            struct ggml_tensor * first = ggml_get_first_tensor(params_ctx);
+            for (struct ggml_tensor * t = first; t != NULL; t = ggml_get_next_tensor(params_ctx, t)) {
+                if (strcmp(t->name, "conv2d_weight_nhwc") == 0) {
+                    for(int i = 0; i< GGML_MAX_SRC; ++i) {
+                        if(t->src[i])
+                           t->src[i] = NULL;
+                    }
+                    t->op = GGML_OP_NONE;
+                }
+            }
+
             preprocessed_weight = true;
         }
 #endif
