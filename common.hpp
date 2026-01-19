@@ -165,6 +165,7 @@ public:
                 emb_out = ggml_reshape_4d(ctx->ggml_ctx, emb_out, 1, emb_out->ne[0], emb_out->ne[1], emb_out->ne[2]);  // [N, t, out_channels, 1]
                 if (exchange_temb_dims) {
                     // emb_out = rearrange(emb_out, "b t c ... -> b c t ...")
+                    // printf("permute 0,2,1,3 type 1\n");
                     emb_out = ggml_cont(ctx->ggml_ctx, ggml_permute(ctx->ggml_ctx, emb_out, 0, 2, 1, 3));  // [N, out_channels, t, 1]
                 }
             }
@@ -339,6 +340,9 @@ public:
         // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
         //             ggml_type_name(x->type),
         //                         x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+        // printf("%s, %d: context->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+        //             ggml_type_name(context->type),
+        //                         context->ne[3], context->ne[2], context->ne[1], context->ne[0]);
         // printf("%s, %d: q->type %s k->type %s, v->type %s \n", __FUNCTION__, __LINE__,
         //             ggml_type_name(q->type), ggml_type_name(k->type),
         //                         ggml_type_name(v->type) );

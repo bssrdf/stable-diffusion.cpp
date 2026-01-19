@@ -1221,6 +1221,9 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         d_head    = C / n_head;
         n_kv_head = k->ne[0] / d_head;
 
+        // printf("permute 0,2,1,3 type 2, (%zu, %zu, %zu, %zu), (%zu, %zu, %zu, %zu) \n",
+            // q->ne[0], q->ne[1], q->ne[2], q->ne[3], d_head, n_head, L_q, N);
+
         q = ggml_reshape_4d(ctx, q, d_head, n_head, L_q, N);       // [N, L_q, n_head, d_head]
         q = ggml_ext_cont(ctx, ggml_permute(ctx, q, 0, 2, 1, 3));  // [N, n_head, L_q, d_head]
         q = ggml_reshape_3d(ctx, q, d_head, L_q, n_head * N);      // [N * n_head, L_q, d_head]
@@ -1266,7 +1269,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         if(k_in->type != kv_type){
             k_in = ggml_cast(ctx, k_in, kv_type);
         }
-
+        // printf("permute 0,2,1,3 type 3\n");
         v_in = ggml_ext_cont(ctx, ggml_permute(ctx, v_in, 0, 2, 1, 3));
         v_in = ggml_reshape_3d(ctx, v_in, d_head, L_k, n_kv_head * N);
         if (kv_pad != 0) {
@@ -1358,7 +1361,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         kq = ggml_soft_max_inplace(ctx, kq);
 
         kqv = ggml_mul_mat(ctx, v, kq);  // [N * n_head, L_q, d_head]
-
+        // printf("permute 0,2,1,3 type 4\n");
         kqv = ggml_reshape_4d(ctx, kqv, d_head, L_q, n_head, N);  // [N, n_head, L_q, d_head]
         kqv = ggml_permute(ctx, kqv, 0, 2, 1, 3);                 // [N, L_q, n_head, d_head]
     }
@@ -2607,6 +2610,9 @@ public:
             auto q_proj = std::dynamic_pointer_cast<Linear>(blocks[q_proj_name]);
             auto k_proj = std::dynamic_pointer_cast<Linear>(blocks[k_proj_name]);
             auto v_proj = std::dynamic_pointer_cast<Linear>(blocks[v_proj_name]);
+            // printf("%s, %d: x->type %s (%d,%d,%d,%d), %d \n", __FUNCTION__, __LINE__,
+            //         ggml_type_name(x->type),
+            //                     x->ne[3], x->ne[2], x->ne[1], x->ne[0], embed_dim);
 
             q = q_proj->forward(ctx, x);
             k = k_proj->forward(ctx, x);
