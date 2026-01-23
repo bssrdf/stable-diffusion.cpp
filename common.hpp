@@ -337,6 +337,13 @@ public:
         auto k = to_k->forward(ctx, context);  // [N, n_context, inner_dim]
         auto v = to_v->forward(ctx, context);  // [N, n_context, inner_dim]
 
+        if (x == context) {
+            // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
+            //         ggml_type_name(x->type),
+            //                     x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
+           ggml_set_name(x, "attn_norm");
+        }
+
         // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
         //             ggml_type_name(x->type),
         //                         x->ne[3], x->ne[2], x->ne[1], x->ne[0]);

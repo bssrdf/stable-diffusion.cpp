@@ -1970,7 +1970,7 @@ public:
             ggml_backend_cpu_set_n_threads(runtime_backend, n_threads);
         }
 
-
+        ggml_backend_graph_optimize(runtime_backend, gf);
         ggml_backend_graph_compute(runtime_backend, gf);
 
 #ifdef SD_USE_CUDA
