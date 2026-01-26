@@ -679,7 +679,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_slice(struct ggml_context* ctx,
                                                      struct ggml_tensor* x,
                                                      int64_t dim,
                                                      int64_t start,
-                                                     int64_t end) {
+                                                     int64_t end,
+                                                     bool cont = true) {
     GGML_ASSERT(dim >= 0 && dim < 4);
     if (x->ne[dim] == 1) {
         return x;
@@ -694,27 +695,39 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_slice(struct ggml_context* ctx,
     GGML_ASSERT(start >= 0 && start < x->ne[dim]);
     GGML_ASSERT(end > start && end <= x->ne[dim]);
 
-    int perm[4] = {0, 1, 2, 3};
-    for (int i = dim; i < 3; ++i)
-        perm[i] = perm[i + 1];
-    perm[3] = dim;
+    // int perm[4] = {0, 1, 2, 3};
+    // for (int i = dim; i < 3; ++i)
+    //     perm[i] = perm[i + 1];
+    // perm[3] = dim;
 
-    int inv_perm[4];
-    for (int i = 0; i < 4; ++i)
-        inv_perm[perm[i]] = i;
+    // int inv_perm[4];
+    // for (int i = 0; i < 4; ++i)
+    //     inv_perm[perm[i]] = i;
 
-    if (dim != 3) {
-        x = ggml_ext_torch_permute(ctx, x, perm[0], perm[1], perm[2], perm[3]);
-        x = ggml_cont(ctx, x);
-    }
+    // if (dim != 3) {
+    //     x = ggml_ext_torch_permute(ctx, x, perm[0], perm[1], perm[2], perm[3]);
+    //     x = ggml_cont(ctx, x);
+    // }
 
-    x = ggml_view_4d(
-        ctx, x,
-        x->ne[0], x->ne[1], x->ne[2], end - start,
-        x->nb[1], x->nb[2], x->nb[3], x->nb[3] * start);
+    // x = ggml_view_4d(
+    //     ctx, x,
+    //     x->ne[0], x->ne[1], x->ne[2], end - start,
+    //     x->nb[1], x->nb[2], x->nb[3], x->nb[3] * start);
 
-    if (dim != 3) {
-        x = ggml_ext_torch_permute(ctx, x, inv_perm[0], inv_perm[1], inv_perm[2], inv_perm[3]);
+    // if (dim != 3) {
+    //     x = ggml_ext_torch_permute(ctx, x, inv_perm[0], inv_perm[1], inv_perm[2], inv_perm[3]);
+    //     x = ggml_cont(ctx, x);
+    // }
+
+    int64_t slice_size  = end - start;
+    int64_t slice_ne[4] = {x->ne[0], x->ne[1], x->ne[2], x->ne[3]};
+    slice_ne[dim]       = slice_size;
+
+    x = ggml_view_4d(ctx, x,
+                     slice_ne[0], slice_ne[1], slice_ne[2], slice_ne[3],
+                     x->nb[1], x->nb[2], x->nb[3], start * x->nb[dim]);
+
+    if (cont) {
         x = ggml_cont(ctx, x);
     }
 
@@ -725,34 +738,51 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_slice(struct ggml_context* ctx,
 __STATIC_INLINE__ std::vector<struct ggml_tensor*> ggml_ext_chunk(struct ggml_context* ctx,
                                                                   struct ggml_tensor* x,
                                                                   int num,
-                                                                  int64_t dim) {
+                                                                  int64_t dim,
+                                                                  bool cont = true) {
     GGML_ASSERT(dim >= 0 && dim < 4);
     GGML_ASSERT(x->ne[dim] % num == 0);
 
-    int perm[4] = {0, 1, 2, 3};
-    for (int i = dim; i < 3; ++i)
-        perm[i] = perm[i + 1];
-    perm[3] = dim;
+    // int perm[4] = {0, 1, 2, 3};
+    // for (int i = dim; i < 3; ++i)
+    //     perm[i] = perm[i + 1];
+    // perm[3] = dim;
 
-    int inv_perm[4];
-    for (int i = 0; i < 4; ++i)
-        inv_perm[perm[i]] = i;
+    // int inv_perm[4];
+    // for (int i = 0; i < 4; ++i)
+    //     inv_perm[perm[i]] = i;
 
-    if (dim != 3) {
-        x = ggml_ext_torch_permute(ctx, x, perm[0], perm[1], perm[2], perm[3]);
-        x = ggml_cont(ctx, x);
-    }
+    // if (dim != 3) {
+    //     x = ggml_ext_torch_permute(ctx, x, perm[0], perm[1], perm[2], perm[3]);
+    //     x = ggml_cont(ctx, x);
+    // }
+
+    // std::vector<struct ggml_tensor*> chunks;
+    // int64_t chunk_size = x->ne[3] / num;
+    // for (int i = 0; i < num; i++) {
+    //     auto chunk = ggml_view_4d(
+    //         ctx, x,
+    //         x->ne[0], x->ne[1], x->ne[2], chunk_size,
+    //         x->nb[1], x->nb[2], x->nb[3], x->nb[3] * i * chunk_size);
+
+    //     if (dim != 3) {
+    //         chunk = ggml_ext_torch_permute(ctx, chunk, inv_perm[0], inv_perm[1], inv_perm[2], inv_perm[3]);
+    //         chunk = ggml_cont(ctx, chunk);
+    //     }
+    //     chunks.push_back(chunk);
+    // }
 
     std::vector<struct ggml_tensor*> chunks;
-    int64_t chunk_size = x->ne[3] / num;
+    int64_t chunk_size  = x->ne[dim] / num;
+    int64_t stride      = chunk_size * x->nb[dim];
+    int64_t chunk_ne[4] = {x->ne[0], x->ne[1], x->ne[2], x->ne[3]};
+    chunk_ne[dim]       = chunk_size;
     for (int i = 0; i < num; i++) {
         auto chunk = ggml_view_4d(
             ctx, x,
-            x->ne[0], x->ne[1], x->ne[2], chunk_size,
-            x->nb[1], x->nb[2], x->nb[3], x->nb[3] * i * chunk_size);
-
-        if (dim != 3) {
-            chunk = ggml_ext_torch_permute(ctx, chunk, inv_perm[0], inv_perm[1], inv_perm[2], inv_perm[3]);
+            chunk_ne[0], chunk_ne[1], chunk_ne[2], chunk_ne[3],
+            x->nb[1], x->nb[2], x->nb[3], stride * i);
+        if (cont) {
             chunk = ggml_cont(ctx, chunk);
         }
         chunks.push_back(chunk);
@@ -957,6 +987,9 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_linear(struct ggml_context* ctx,
         //    w->ne[3], w->ne[2], w->ne[1], w->ne[0]);
     if (scale != 1.f) {
         // printf("%s, %d: scale = %f \n", __FUNCTION__, __LINE__, scale);
+        if (!ggml_is_contiguous(x)) {
+            x = ggml_cont(ctx, x);
+        }
         x = ggml_scale(ctx, x, scale);
     }
 
@@ -1594,6 +1627,7 @@ protected:
     bool conv2d_direct_enabled = false;
 
     bool preprocessed_weight   = false;
+    bool not_optimized = true;
 
     void alloc_params_ctx() {
         struct ggml_init_params params;
@@ -1683,6 +1717,12 @@ protected:
         }
         reset_compute_ctx();
         struct ggml_cgraph* gf = get_compute_graph(get_graph);
+#ifdef SD_USE_CUDA
+        // if (not_optimized) {
+        //     ggml_backend_graph_optimize(runtime_backend, gf);
+        //     not_optimized = false;
+        // }
+#endif
         backend_tensor_data_map.clear();
         compute_allocr = ggml_gallocr_new(ggml_backend_get_default_buffer_type(runtime_backend));
 
@@ -1961,16 +2001,23 @@ public:
             LOG_ERROR("%s offload params to runtime backend failed", get_desc().c_str());
             return;
         }
+
         alloc_compute_buffer(get_graph);
         reset_compute_ctx();
         struct ggml_cgraph* gf = get_compute_graph(get_graph);
+// #ifdef SD_USE_CUDA
+//         if (not_optimized) {
+//             ggml_backend_graph_optimize(runtime_backend, gf);
+//             not_optimized = false;
+//         }
+// #endif
         GGML_ASSERT(ggml_gallocr_alloc_graph(compute_allocr, gf));
         copy_data_to_backend_tensor();
         if (ggml_backend_is_cpu(runtime_backend)) {
             ggml_backend_cpu_set_n_threads(runtime_backend, n_threads);
         }
 
-        ggml_backend_graph_optimize(runtime_backend, gf);
+        // LOG_INFO("%s backend_graph compute", get_desc().c_str());
         ggml_backend_graph_compute(runtime_backend, gf);
 
 #ifdef SD_USE_CUDA
