@@ -2135,7 +2135,6 @@ public:
         if (prefix.size() > 0) {
             prefix = prefix + ".";
         }
-
         init_params(ctx, tensor_storage_map, prefix);
         init_blocks(ctx, tensor_storage_map, prefix);
     }

@@ -521,6 +521,22 @@ protected:
     }
 
 
+    void init_params(struct ggml_context* ctx, const String2TensorStorage& tensor_storage_map = {}, const std::string prefix = "") {
+        auto iter = tensor_storage_map.find(prefix + "proj_out.weight");
+        if (iter != tensor_storage_map.end()) {
+            int64_t inner_dim = n_head * d_head;
+            if (iter->second.n_dims == 4 && use_linear) {
+                use_linear         = false;
+                blocks["proj_in"]  = std::make_shared<Conv2d>(in_channels, inner_dim, std::pair{1, 1});
+                blocks["proj_out"] = std::make_shared<Conv2d>(inner_dim, in_channels, std::pair{1, 1});
+            } else if (iter->second.n_dims == 2 && !use_linear) {
+                use_linear         = true;
+                blocks["proj_in"]  = std::make_shared<Linear>(in_channels, inner_dim);
+                blocks["proj_out"] = std::make_shared<Linear>(inner_dim, in_channels);
+            }
+        }
+    }
+
 public:
     SpatialTransformer(int64_t in_channels,
                        int64_t n_head,

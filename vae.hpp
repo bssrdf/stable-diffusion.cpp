@@ -85,7 +85,6 @@ protected:
         }
     }
 
-
 public:
     AttnBlock(int64_t in_channels, bool use_linear)
         : in_channels(in_channels), use_linear(use_linear) {
