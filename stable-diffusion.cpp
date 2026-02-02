@@ -1367,7 +1367,6 @@ public:
 
         int64_t t0 = ggml_time_us();
 
-        auto denoise = [&](ggml_tensor* input, float sigma, int step, int steps = -1) -> ggml_tensor* {
         struct ggml_tensor* preview_tensor = nullptr;
         auto sd_preview_mode               = sd_get_preview_mode();
         if (sd_preview_mode != PREVIEW_NONE && sd_preview_mode != PREVIEW_PROJ) {
@@ -1393,7 +1392,8 @@ public:
             }
         }
 
-        auto denoise = [&](ggml_tensor* input, float sigma, int step) -> ggml_tensor* {
+        // auto denoise = [&](ggml_tensor* input, float sigma, int step) -> ggml_tensor* {
+        auto denoise = [&](ggml_tensor* input, float sigma, int step, int steps = -1) -> ggml_tensor* {
             auto sd_preview_cb   = sd_get_preview_callback();
             auto sd_preview_mode = sd_get_preview_mode();
             if (step == 1 || step == -1) {
