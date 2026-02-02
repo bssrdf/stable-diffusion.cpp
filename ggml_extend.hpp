@@ -975,6 +975,20 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_group_norm_32(struct ggml_context
     return ggml_group_norm(ctx, a, 32, eps);
 }
 
+__STATIC_INLINE__ struct ggml_tensor* ggml_ext_gelu(struct ggml_context* ctx,
+                                                    struct ggml_tensor* x,
+                                                    bool inplace = false) {
+    if (!ggml_is_contiguous(x)) {
+        x = ggml_cont(ctx, x);
+    }
+    if (inplace) {
+        x = ggml_gelu_inplace(ctx, x);
+    } else {
+        x = ggml_gelu(ctx, x);
+    }
+    return x;
+}
+
 __STATIC_INLINE__ struct ggml_tensor* ggml_ext_linear(struct ggml_context* ctx,
                                                       struct ggml_tensor* x,
                                                       struct ggml_tensor* w,
