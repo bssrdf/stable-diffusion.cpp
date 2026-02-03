@@ -258,8 +258,10 @@ namespace ZImage {
         ZImageParams z_image_params;
 
         void init_params(struct ggml_context* ctx, const String2TensorStorage& tensor_storage_map = {}, const std::string prefix = "") override {
-            params["cap_pad_token"] = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, z_image_params.hidden_size);
-            params["x_pad_token"]   = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, z_image_params.hidden_size);
+            // params["cap_pad_token"] = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, z_image_params.hidden_size);
+            // params["x_pad_token"]   = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, z_image_params.hidden_size);
+            params["cap_pad_token"] = ggml_new_tensor_1d(ctx, GGML_TYPE_BF16, z_image_params.hidden_size);
+            params["x_pad_token"]   = ggml_new_tensor_1d(ctx, GGML_TYPE_BF16, z_image_params.hidden_size);
         }
 
     public:
@@ -397,6 +399,13 @@ namespace ZImage {
             auto txt_pad_token = params["cap_pad_token"];
             auto img_pad_token = params["x_pad_token"];
 
+            if(txt_pad_token->type != GGML_TYPE_BF16){
+                txt_pad_token = ggml_cast(ctx->ggml_ctx, txt_pad_token, GGML_TYPE_BF16);
+            }
+            if(img_pad_token->type != GGML_TYPE_BF16){
+                img_pad_token = ggml_cast(ctx->ggml_ctx, img_pad_token, GGML_TYPE_BF16);
+            }
+
             int64_t N           = x->ne[2];
             int64_t n_img_token = x->ne[1];
             int64_t n_txt_token = context->ne[1];
@@ -434,7 +443,6 @@ namespace ZImage {
 
                 img = block->forward(ctx, img, img_pe, nullptr, t_emb);
             }
-
             auto txt_img = ggml_concat(ctx->ggml_ctx, txt, img, 1);  // [N, n_txt_token + n_txt_pad_token + n_img_token + n_img_pad_token, hidden_size]
 
             for (int i = 0; i < z_image_params.num_layers; i++) {
@@ -480,6 +488,19 @@ namespace ZImage {
 
             int64_t h_len = ((H + (z_image_params.patch_size / 2)) / z_image_params.patch_size);
             int64_t w_len = ((W + (z_image_params.patch_size / 2)) / z_image_params.patch_size);
+
+            if(img->type == GGML_TYPE_F32){
+                img = ggml_cast(ctx->ggml_ctx, img, GGML_TYPE_BF16);
+            }
+            if(timestep->type == GGML_TYPE_F32){
+                timestep = ggml_cast(ctx->ggml_ctx, timestep, GGML_TYPE_BF16);
+            }
+            if(context->type == GGML_TYPE_F32){
+                context = ggml_cast(ctx->ggml_ctx, context, GGML_TYPE_BF16);
+            }
+            if(pe->type == GGML_TYPE_F32){
+                pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_BF16);
+            }
 
             auto out = forward_core(ctx, img, timestep, context, pe);
 
@@ -564,7 +585,10 @@ namespace ZImage {
                                                       pe,
                                                       ref_latents);
 
+            if(out->type != GGML_TYPE_F32)
+                out = ggml_cast(runner_ctx.ggml_ctx, out, GGML_TYPE_F32);
             ggml_build_forward_expand(gf, out);
+            // ggml_graph_print(gf);
 
             return gf;
         }
