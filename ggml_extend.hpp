@@ -1061,6 +1061,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_conv_2d(struct ggml_context* ctx,
                                                        int d0      = 1,
                                                        int d1      = 1,
                                                        bool direct = false,
+                                                       bool NHWC   = false,
                                                        float scale = 1.f) {
     if (scale != 1.f) {
         // printf("%s, %d: scale = %f \n", __FUNCTION__, __LINE__, scale);
@@ -1070,6 +1071,9 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_conv_2d(struct ggml_context* ctx,
     // printf("std::make_tuple(%d,%d,%d,%d,3,3),\n", x->ne[2],w->ne[3],x->ne[0],x->ne[1]);
     // printf("x->type %s w->type %s (%d,%d,%d,%d) \n", ggml_type_name(x->type), ggml_type_name(w->type),
     //      x->ne[2],w->ne[3],x->ne[0],x->ne[1]);
+    if (!NHWC && w->ne[2] != x->ne[2] && ggml_n_dims(w) == 2) {
+        w = ggml_reshape_4d(ctx, w, 1, 1, w->ne[0], w->ne[1]);
+    }
     if (direct) {
     // if (x->ne[0] >= 32 || x->ne[1] >= 32){
     // if (w->type == GGML_TYPE_F16 && w->ne[2] % 8 == 0 ) {
@@ -2482,6 +2486,7 @@ public:
                                 dilation.second,
                                 dilation.first,
                                 ctx->conv2d_direct_enabled,
+                                to_NHWC_layout,
                                 scale);
     }
 };
