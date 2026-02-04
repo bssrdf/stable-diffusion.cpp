@@ -2097,7 +2097,7 @@ public:
         return ggml_get_tensor(cache_ctx, name.c_str());
     }
 
-    void compute(get_graph_cb_t get_graph,
+    bool compute(get_graph_cb_t get_graph,
                  int n_threads,
                  bool free_compute_buffer_immediately = true,
                  struct ggml_tensor** output          = nullptr,
@@ -2105,27 +2105,29 @@ public:
                  bool freeze_graph = false) {
         if (!offload_params_to_runtime_backend()) {
             LOG_ERROR("%s offload params to runtime backend failed", get_desc().c_str());
-            return;
+            return false;
         }
-
-        alloc_compute_buffer(get_graph);
+        if (!alloc_compute_buffer(get_graph)) {
+            LOG_ERROR("%s alloc compute buffer failed", get_desc().c_str());
+            return false;
+        }
         reset_compute_ctx();
         struct ggml_cgraph* gf = get_compute_graph(get_graph);
-// #ifdef SD_USE_CUDA
-//         if (not_optimized) {
-//             ggml_backend_graph_optimize(runtime_backend, gf);
-//             not_optimized = false;
-//         }
-// #endif
-        GGML_ASSERT(ggml_gallocr_alloc_graph(compute_allocr, gf));
+        if (!ggml_gallocr_alloc_graph(compute_allocr, gf)) {
+            LOG_ERROR("%s alloc compute graph failed", get_desc().c_str());
+            return false;
+        }
         copy_data_to_backend_tensor();
         if (ggml_backend_is_cpu(runtime_backend)) {
             ggml_backend_cpu_set_n_threads(runtime_backend, n_threads);
         }
 
         // LOG_INFO("%s backend_graph compute", get_desc().c_str());
-        ggml_backend_graph_compute(runtime_backend, gf);
-
+        ggml_status status = ggml_backend_graph_compute(runtime_backend, gf);
+        if (status != GGML_STATUS_SUCCESS) {
+            LOG_ERROR("%s compute failed: %s", get_desc().c_str(), ggml_status_to_string(status));
+            return false;
+        }
 #ifdef SD_USE_CUDA
         if (freeze_graph) {
         //    printf("%s: freeze graph \n", __FUNCTION__);
@@ -2177,7 +2179,6 @@ public:
         //    }
         // }
 
-
 #ifdef GGML_PERF
         ggml_graph_print(gf);
 #endif
@@ -2195,6 +2196,7 @@ public:
         if (free_compute_buffer_immediately) {
             free_compute_buffer();
         }
+        return true;
     }
 
     void set_flash_attention_enabled(bool enabled) {
