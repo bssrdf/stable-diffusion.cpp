@@ -869,7 +869,7 @@ static bool sample_k_diffusion(sample_method_t method,
 
             for (int i = 0; i < steps; i++) {
                 // denoise
-                ggml_tensor* denoised = model(x, sigmas[i], i + 1, steps);
+                ggml_tensor* denoised = model(x, sigmas[i], -(i + 1), steps);
                 if (denoised == nullptr) {
                     return false;
                 }
@@ -927,7 +927,7 @@ static bool sample_k_diffusion(sample_method_t method,
 
             for (int i = 0; i < steps; i++) {
                 // denoise
-                ggml_tensor* denoised = model(x, sigmas[i], i + 1, steps);
+                ggml_tensor* denoised = model(x, sigmas[i], -(i + 1), steps);
                 if (denoised == nullptr) {
                     return false;
                 }
