@@ -324,6 +324,7 @@ struct SDCliParams {
     std::string output_path = "output.png";
 
     bool verbose          = false;
+    bool version          = false;
     bool canny_preprocess = false;
 
     preview_t preview_method = PREVIEW_NONE;
@@ -366,6 +367,10 @@ struct SDCliParams {
              "--verbose",
              "print extra info",
              true, &verbose},
+            {"",
+             "--version",
+             "print stable-diffusion.cpp version",
+             true, &version},
             {"",
              "--color",
              "colors the logging tags according to level",
@@ -502,7 +507,7 @@ struct SDContextParams {
     std::string lora_model_dir;
 
     std::map<std::string, std::string> embedding_map;
-    std::vector<sd_embedding_t> embedding_array;
+    std::vector<sd_embedding_t> embedding_vec;
 
     rng_type_t rng_type         = CUDA_RNG;
     rng_type_t sampler_rng_type = RNG_TYPE_COUNT;
@@ -947,13 +952,13 @@ struct SDContextParams {
     }
 
     sd_ctx_params_t to_sd_ctx_params_t(bool vae_decode_only, bool free_params_immediately, bool taesd_preview) {
-        embedding_array.clear();
-        embedding_array.reserve(embedding_map.size());
+        embedding_vec.clear();
+        embedding_vec.reserve(embedding_map.size());
         for (const auto& kv : embedding_map) {
             sd_embedding_t item;
             item.name = kv.first.c_str();
             item.path = kv.second.c_str();
-            embedding_array.emplace_back(item);
+            embedding_vec.emplace_back(item);
         }
 
         sd_ctx_params_t sd_ctx_params = {
@@ -970,8 +975,8 @@ struct SDContextParams {
             taesd_path.c_str(),
             control_net_path.c_str(),
             lora_model_dir.c_str(),
-            embedding_array.data(),
-            static_cast<uint32_t>(embedding_array.size()),
+            embedding_vec.data(),
+            static_cast<uint32_t>(embedding_vec.size()),
             photo_maker_path.c_str(),
             tensor_type_rules.c_str(),
             vae_decode_only,
@@ -1025,6 +1030,15 @@ static std::string vec_str_to_string(const std::vector<std::string>& v) {
     return oss.str();
 }
 
+static bool is_absolute_path(const std::string& p) {
+#ifdef _WIN32
+    // Windows: C:/path or C:\path
+    return p.size() > 1 && std::isalpha(static_cast<unsigned char>(p[0])) && p[1] == ':';
+#else
+    return !p.empty() && p[0] == '/';
+#endif
+}
+
 struct SDGenerationParams {
     std::string prompt;
     std::string negative_prompt;
@@ -1066,6 +1080,10 @@ struct SDGenerationParams {
     float pm_style_strength = 20.f;
 
     int upscale_repeats = 1;
+
+    std::map<std::string, float> lora_map;
+    std::map<std::string, float> high_noise_lora_map;
+    std::vector<sd_lora_t> lora_vec;
 
     SDGenerationParams() {
         sd_sample_params_init(&sample_params);
@@ -1437,7 +1455,88 @@ struct SDGenerationParams {
         return options;
     }
 
-    bool process_and_check(SDMode mode) {
+    void extract_and_remove_lora(const std::string& lora_model_dir) {
+        static const std::regex re(R"(<lora:([^:>]+):([^>]+)>)");
+        static const std::vector<std::string> valid_ext = {".pt", ".safetensors", ".gguf"};
+        std::smatch m;
+
+        std::string tmp = prompt;
+
+        while (std::regex_search(tmp, m, re)) {
+            std::string raw_path      = m[1].str();
+            const std::string raw_mul = m[2].str();
+
+            float mul = 0.f;
+            try {
+                mul = std::stof(raw_mul);
+            } catch (...) {
+                tmp    = m.suffix().str();
+                prompt = std::regex_replace(prompt, re, "", std::regex_constants::format_first_only);
+                continue;
+            }
+
+            bool is_high_noise              = false;
+            static const std::string prefix = "|high_noise|";
+            if (raw_path.rfind(prefix, 0) == 0) {
+                raw_path.erase(0, prefix.size());
+                is_high_noise = true;
+            }
+
+            fs::path final_path;
+            if (is_absolute_path(raw_path)) {
+                final_path = raw_path;
+            } else {
+                final_path = fs::path(lora_model_dir) / raw_path;
+            }
+            if (!fs::exists(final_path)) {
+                bool found = false;
+                for (const auto& ext : valid_ext) {
+                    fs::path try_path = final_path;
+                    try_path += ext;
+                    if (fs::exists(try_path)) {
+                        final_path = try_path;
+                        found      = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    printf("can not found lora %s\n", final_path.lexically_normal().string().c_str());
+                    tmp    = m.suffix().str();
+                    prompt = std::regex_replace(prompt, re, "", std::regex_constants::format_first_only);
+                    continue;
+                }
+            }
+
+            const std::string key = final_path.lexically_normal().string();
+
+            if (is_high_noise)
+                high_noise_lora_map[key] += mul;
+            else
+                lora_map[key] += mul;
+
+            prompt = std::regex_replace(prompt, re, "", std::regex_constants::format_first_only);
+
+            tmp = m.suffix().str();
+        }
+
+        for (const auto& kv : lora_map) {
+            sd_lora_t item;
+            item.is_high_noise = false;
+            item.path          = kv.first.c_str();
+            item.multiplier    = kv.second;
+            lora_vec.emplace_back(item);
+        }
+
+        for (const auto& kv : high_noise_lora_map) {
+            sd_lora_t item;
+            item.is_high_noise = true;
+            item.path          = kv.first.c_str();
+            item.multiplier    = kv.second;
+            lora_vec.emplace_back(item);
+        }
+    }
+
+    bool process_and_check(SDMode mode, const std::string& lora_model_dir) {
         if (width <= 0) {
             fprintf(stderr, "error: the width must be greater than 0\n");
             return false;
@@ -1548,14 +1647,44 @@ struct SDGenerationParams {
             seed = rand();
         }
 
+        extract_and_remove_lora(lora_model_dir);
+
         return true;
     }
 
     std::string to_string() const {
         char* sample_params_str            = sd_sample_params_to_str(&sample_params);
         char* high_noise_sample_params_str = sd_sample_params_to_str(&high_noise_sample_params);
+
+        std::ostringstream lora_ss;
+        lora_ss << "{\n";
+        for (auto it = lora_map.begin(); it != lora_map.end(); ++it) {
+            lora_ss << "    \"" << it->first << "\": \"" << it->second << "\"";
+            if (std::next(it) != lora_map.end()) {
+                lora_ss << ",";
+            }
+            lora_ss << "\n";
+        }
+        lora_ss << "  }";
+        std::string loras_str = lora_ss.str();
+
+        lora_ss = std::ostringstream();
+        ;
+        lora_ss << "{\n";
+        for (auto it = high_noise_lora_map.begin(); it != high_noise_lora_map.end(); ++it) {
+            lora_ss << "    \"" << it->first << "\": \"" << it->second << "\"";
+            if (std::next(it) != high_noise_lora_map.end()) {
+                lora_ss << ",";
+            }
+            lora_ss << "\n";
+        }
+        lora_ss << "  }";
+        std::string high_noise_loras_str = lora_ss.str();
+
         std::ostringstream oss;
         oss << "SDGenerationParams {\n"
+            << "  loras: \"" << loras_str << "\",\n"
+            << "  high_noise_loras: \"" << high_noise_loras_str << "\",\n"
             << "  prompt: \"" << prompt << "\",\n"
             << "  negative_prompt: \"" << negative_prompt << "\",\n"
             << "  clip_skip: " << clip_skip << ",\n"
@@ -1598,7 +1727,12 @@ struct SDGenerationParams {
     }
 };
 
+static std::string version_string() {
+    return std::string("stable-diffusion.cpp version ") + sd_version() + ", commit " + sd_commit();
+}
+
 void print_usage(int argc, const char* argv[], const std::vector<ArgOptions>& options_list) {
+    std::cout << version_string() << "\n";
     std::cout << "Usage: " << argv[0] << " [options]\n\n";
     std::cout << "CLI Options:\n";
     options_list[0].print();
@@ -1616,7 +1750,9 @@ void parse_args(int argc, const char** argv, SDCliParams& cli_params, SDContextP
         exit(cli_params.normal_exit ? 0 : 1);
     }
 
-    if (!cli_params.process_and_check() || !ctx_params.process_and_check(cli_params.mode) || !gen_params.process_and_check(cli_params.mode)) {
+    if (!cli_params.process_and_check() ||
+        !ctx_params.process_and_check(cli_params.mode) ||
+        !gen_params.process_and_check(cli_params.mode, ctx_params.lora_model_dir)) {
         print_usage(argc, argv, options_vec);
         exit(1);
     }
@@ -1881,11 +2017,19 @@ void step_callback(int step, int frame_count, sd_image_t* image, bool is_noisy, 
 }
 
 int main(int argc, const char* argv[]) {
+    if (argc > 1 && std::string(argv[1]) == "--version") {
+        std::cout << version_string() << "\n";
+        return EXIT_SUCCESS;
+    }
+
     SDCliParams cli_params;
     SDContextParams ctx_params;
     SDGenerationParams gen_params;
 
     parse_args(argc, argv, cli_params, ctx_params, gen_params);
+    if (cli_params.verbose || cli_params.version) {
+        std::cout << version_string() << "\n";
+    }
     if (gen_params.video_frames > 4) {
         size_t last_dot_pos   = cli_params.preview_path.find_last_of(".");
         std::string base_path = cli_params.preview_path;
@@ -2121,6 +2265,8 @@ int main(int argc, const char* argv[]) {
 
         if (cli_params.mode == IMG_GEN) {
             sd_img_gen_params_t img_gen_params = {
+                gen_params.lora_vec.data(),
+                static_cast<uint32_t>(gen_params.lora_vec.size()),
                 gen_params.prompt.c_str(),
                 gen_params.negative_prompt.c_str(),
                 gen_params.clip_skip,
@@ -2152,6 +2298,8 @@ int main(int argc, const char* argv[]) {
             num_results = gen_params.batch_count;
         } else if (cli_params.mode == VID_GEN) {
             sd_vid_gen_params_t vid_gen_params = {
+                gen_params.lora_vec.data(),
+                static_cast<uint32_t>(gen_params.lora_vec.size()),
                 gen_params.prompt.c_str(),
                 gen_params.negative_prompt.c_str(),
                 gen_params.clip_skip,
