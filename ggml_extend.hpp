@@ -803,7 +803,7 @@ __STATIC_INLINE__ ggml_tensor* ggml_ext_silu_act(ggml_context* ctx, ggml_tensor*
     // x: [ne3, ne2, ne1, ne0]
     // return: [ne3, ne2, ne1, ne0/2]
 
-    auto x_vec = ggml_ext_chunk(ctx, x, 2, 0);
+    auto x_vec = ggml_ext_chunk(ctx, x, 2, 0, false);
     ggml_tensor* gate;
     if (gate_first) {
         gate = x_vec[0];
@@ -812,7 +812,7 @@ __STATIC_INLINE__ ggml_tensor* ggml_ext_silu_act(ggml_context* ctx, ggml_tensor*
         x    = x_vec[0];
         gate = x_vec[1];
     }
-
+    gate = ggml_cont(ctx, gate);
     gate = ggml_silu_inplace(ctx, gate);
 
     x = ggml_mul(ctx, x, gate);  // [ne3, ne2, ne1, ne0/2]
@@ -1397,6 +1397,9 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         }
 
         if (mask_in != nullptr) {
+            // the need for padding got removed in ggml 4767bda
+            // ensure we can still use the old version for now
+#ifdef GGML_KQ_MASK_PAD
             int mask_pad = 0;
             if (mask_in->ne[1] % GGML_KQ_MASK_PAD != 0) {
                 mask_pad = GGML_PAD(L_q, GGML_KQ_MASK_PAD) - mask_in->ne[1];
@@ -1404,7 +1407,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
             if (mask_pad > 0) {
                 mask_in = ggml_pad(ctx, mask_in, 0, mask_pad, 0, 0);
             }
-            if(mask_in->type != GGML_TYPE_F16)
+#endif
+            if (mask_in->type != GGML_TYPE_F16)
                 mask_in = ggml_cast(ctx, mask_in, GGML_TYPE_F16);
         }
 

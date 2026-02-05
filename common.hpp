@@ -243,6 +243,8 @@ public:
         x         = ggml_ext_linear(ctx->ggml_ctx, x_in, x_w, x_b);        // [ne3, ne2, ne1, dim_out]
         auto gate = ggml_ext_linear(ctx->ggml_ctx, x_in, gate_w, gate_b);  // [ne3, ne2, ne1, dim_out]
 
+        gate = ggml_cont(ctx->ggml_ctx, gate);
+
         gate = ggml_gelu_inplace(ctx->ggml_ctx, gate);
 
         x = ggml_mul(ctx->ggml_ctx, x, gate);  // [ne3, ne2, ne1, dim_out]
