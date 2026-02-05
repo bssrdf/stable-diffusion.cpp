@@ -189,6 +189,8 @@ typedef struct {
     bool tae_preview_only;
     bool diffusion_conv_direct;
     bool vae_conv_direct;
+    bool circular_x;
+    bool circular_y;
     bool force_sdxl_vae_conv_scale;
     bool chroma_use_dit_mask;
     bool chroma_use_t5_mask;
@@ -363,7 +365,8 @@ SD_API bool convert(const char* input_path,
                     const char* vae_path,
                     const char* output_path,
                     enum sd_type_t output_type,
-                    const char* tensor_type_rules);
+                    const char* tensor_type_rules,
+                    bool convert_name);
 
 SD_API bool preprocess_canny(sd_image_t image,
                              float high_threshold,
