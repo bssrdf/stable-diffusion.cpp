@@ -516,16 +516,16 @@ namespace ZImage {
             int64_t h_len = ((H + (z_image_params.patch_size / 2)) / z_image_params.patch_size);
             int64_t w_len = ((W + (z_image_params.patch_size / 2)) / z_image_params.patch_size);
 
-            if(img->type == GGML_TYPE_F32){
+            if(img->type != GGML_TYPE_BF16){
                 img = ggml_cast(ctx->ggml_ctx, img, GGML_TYPE_BF16);
             }
-            if(timestep->type == GGML_TYPE_F32){
+            if(timestep->type != GGML_TYPE_BF16){
                 timestep = ggml_cast(ctx->ggml_ctx, timestep, GGML_TYPE_BF16);
             }
-            if(context->type == GGML_TYPE_F32){
+            if(context->type != GGML_TYPE_BF16){
                 context = ggml_cast(ctx->ggml_ctx, context, GGML_TYPE_BF16);
             }
-            if(pe->type == GGML_TYPE_F32){
+            if(pe->type != GGML_TYPE_BF16){
                 pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_BF16);
             }
 
