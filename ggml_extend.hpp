@@ -704,30 +704,6 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_slice(struct ggml_context* ctx,
     GGML_ASSERT(start >= 0 && start < x->ne[dim]);
     GGML_ASSERT(end > start && end <= x->ne[dim]);
 
-    // int perm[4] = {0, 1, 2, 3};
-    // for (int i = dim; i < 3; ++i)
-    //     perm[i] = perm[i + 1];
-    // perm[3] = dim;
-
-    // int inv_perm[4];
-    // for (int i = 0; i < 4; ++i)
-    //     inv_perm[perm[i]] = i;
-
-    // if (dim != 3) {
-    //     x = ggml_ext_torch_permute(ctx, x, perm[0], perm[1], perm[2], perm[3]);
-    //     x = ggml_cont(ctx, x);
-    // }
-
-    // x = ggml_view_4d(
-    //     ctx, x,
-    //     x->ne[0], x->ne[1], x->ne[2], end - start,
-    //     x->nb[1], x->nb[2], x->nb[3], x->nb[3] * start);
-
-    // if (dim != 3) {
-    //     x = ggml_ext_torch_permute(ctx, x, inv_perm[0], inv_perm[1], inv_perm[2], inv_perm[3]);
-    //     x = ggml_cont(ctx, x);
-    // }
-
     int64_t slice_size  = end - start;
     int64_t slice_ne[4] = {x->ne[0], x->ne[1], x->ne[2], x->ne[3]};
     slice_ne[dim]       = slice_size;
@@ -1003,6 +979,21 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_group_norm_32(struct ggml_context
     return ggml_group_norm(ctx, a, 32, eps);
 }
 
+__STATIC_INLINE__ struct ggml_tensor* ggml_ext_scale(struct ggml_context* ctx,
+                                                     struct ggml_tensor* x,
+                                                     float factor,
+                                                     bool inplace = false) {
+    if (!ggml_is_contiguous(x)) {
+        x = ggml_cont(ctx, x);
+    }
+    if (inplace) {
+        x = ggml_scale_inplace(ctx, x, factor);
+    } else {
+        x = ggml_scale(ctx, x, factor);
+    }
+    return x;
+}
+
 __STATIC_INLINE__ struct ggml_tensor* ggml_ext_gelu(struct ggml_context* ctx,
                                                     struct ggml_tensor* x,
                                                     bool inplace = false) {
@@ -1013,6 +1004,20 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_gelu(struct ggml_context* ctx,
         x = ggml_gelu_inplace(ctx, x);
     } else {
         x = ggml_gelu(ctx, x);
+    }
+    return x;
+}
+
+__STATIC_INLINE__ struct ggml_tensor* ggml_ext_gelu_quick(struct ggml_context* ctx,
+                                                          struct ggml_tensor* x,
+                                                          bool inplace = false) {
+    if (!ggml_is_contiguous(x)) {
+        x = ggml_cont(ctx, x);
+    }
+    if (inplace) {
+        x = ggml_gelu_quick_inplace(ctx, x);
+    } else {
+        x = ggml_gelu_quick(ctx, x);
     }
     return x;
 }
@@ -1028,11 +1033,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_linear(struct ggml_context* ctx,
                 // ggml_type_name(x->type), w->name, ggml_type_name(w->type), x->ne[3], x->ne[2], x->ne[1], x->ne[0],
         //    w->ne[3], w->ne[2], w->ne[1], w->ne[0]);
     if (scale != 1.f) {
-        // printf("%s, %d: scale = %f \n", __FUNCTION__, __LINE__, scale);
-        if (!ggml_is_contiguous(x)) {
-            x = ggml_cont(ctx, x);
-        }
-        x = ggml_scale(ctx, x, scale);
+        x = ggml_ext_scale(ctx, x, scale);
     }
 
     // printf("%s, %d: MUL_MAT x->type %s (%d,%d,%d,%d) (%d, %d,%d, %d)\n", __FUNCTION__, __LINE__,
@@ -1056,7 +1057,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_linear(struct ggml_context* ctx,
         }
     }
     if (scale != 1.f) {
-        x = ggml_scale(ctx, x, 1.f / scale);
+        x = ggml_ext_scale(ctx, x, 1.f / scale);
     }
     // printf("%s, %d: x->type %s (%d,%d,%d,%d) \n", __FUNCTION__, __LINE__,
     //                 ggml_type_name(x->type), x->ne[3], x->ne[2], x->ne[1], x->ne[0]);
@@ -1137,8 +1138,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_conv_2d(struct ggml_context* ctx,
                                                        float scale = 1.f) {
 
     if (scale != 1.f) {
-        // printf("%s, %d: scale = %f \n", __FUNCTION__, __LINE__, scale);
-        x = ggml_scale(ctx, x, scale);
+        x = ggml_ext_scale(ctx, x, scale);
     }
     // printf("(%d,%d,%d,%d),\n", x->ne[2],w->ne[3],x->ne[0],x->ne[1]);
     // printf("std::make_tuple(%d,%d,%d,%d,3,3),\n", x->ne[2],w->ne[3],x->ne[0],x->ne[1]);
@@ -1162,7 +1162,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_conv_2d(struct ggml_context* ctx,
         x = ggml_conv_2d(ctx, w, x, s0, s1, p0, p1, d0, d1);
     }
     if (scale != 1.f) {
-        x = ggml_scale(ctx, x, 1.f / scale);
+        x = ggml_ext_scale(ctx, x, 1.f / scale);
     }
     if (b != nullptr) {
         b = ggml_reshape_4d(ctx, b, 1, 1, b->ne[0], 1);
@@ -1271,8 +1271,9 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_full(struct ggml_context* ctx,
     else if (type == GGML_TYPE_F16)
        one = ggml_get_tensor(ctx, "ggml_runner_build_in_tensor:onef16");
     // ggml_set_name(one, "full_tensor_one");
-    auto t   = ggml_scale(ctx, one, value);                 // [1,]
+    auto t   = ggml_ext_scale(ctx, one, value);                 // [1,]
     ggml_set_name(t, "full_tensor_one_scaled");
+
     t        = ggml_repeat_4d(ctx, t, ne0, ne1, ne2, ne3);  // [ne0, ne1, ne2, ne3]
     // ggml_set_name(t, "full_tensor_t");
     return t;
@@ -1390,7 +1391,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
             k_in = ggml_pad(ctx, k_in, 0, kv_pad, 0, 0);
         }
         if (kv_scale != 1.0f) {
-            k_in = ggml_scale(ctx, k_in, kv_scale);
+            k_in = ggml_ext_scale(ctx, k_in, kv_scale);
             ggml_set_name(k_in, "k_in_scaled_1");
         }
         if(k_in->type != kv_type){
@@ -1403,8 +1404,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
             v_in = ggml_pad(ctx, v_in, 0, kv_pad, 0, 0);
         }
         if (kv_scale != 1.0f) {
-            v_in = ggml_scale(ctx, v_in, kv_scale);
-            ggml_set_name(k_in, "v_in_scaled_1");
+            v_in = ggml_ext_scale(ctx, v_in, kv_scale);
+            ggml_set_name(v_in, "v_in_scaled_1");
         }
         if(v_in->type != kv_type){
             v_in = ggml_cast(ctx, v_in, kv_type);
@@ -1447,7 +1448,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         // printf("%s, %d: out->type %s \n", __FUNCTION__, __LINE__,
         //             ggml_type_name(out->type)       );
         if (kv_scale != 1.0f) {
-            out = ggml_scale(ctx, out, 1.0f / kv_scale);
+            out = ggml_ext_scale(ctx, out, 1.0f / kv_scale);
         }
         return out;
     };
@@ -1670,12 +1671,14 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_timestep_embedding(
     // printf("time step scale %f \n", time_factor);
     if (timesteps->type != GGML_TYPE_F32)
         timesteps = ggml_cast(ctx, timesteps, GGML_TYPE_F32);
-    timesteps = ggml_scale(ctx, timesteps, time_factor);
+    timesteps = ggml_ext_scale(ctx, timesteps, time_factor);
     ggml_set_name(timesteps, "timestep_scaled");
     timesteps = ggml_timestep_embedding(ctx, timesteps, dim, max_period);
     ggml_set_name(timesteps, "timestep_embedding");
-    // return ggml_cast(ctx, timesteps, GGML_TYPE_F16);
-    return ggml_cast(ctx, timesteps, timestep_type);
+    if(timesteps->type != timestep_type)
+        timesteps = ggml_cast(ctx, timesteps, timestep_type);
+    return timesteps;
+
 }
 
 __STATIC_INLINE__ size_t ggml_tensor_num(ggml_context* ctx) {
