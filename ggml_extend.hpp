@@ -1330,7 +1330,6 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
                                                              struct ggml_tensor* v,
                                                              int64_t n_head,
                                                              struct ggml_tensor* mask = nullptr,
-                                                             bool diag_mask_inf       = false,
                                                              bool skip_reshape        = false,
                                                              bool flash_attn          = false,
                                                              float kv_scale           = 1.0f,
@@ -1487,9 +1486,6 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         kq = ggml_scale_inplace(ctx, kq, scale);
         if (mask) {
             kq = ggml_add_inplace(ctx, kq, mask);
-        }
-        if (diag_mask_inf) {
-            kq = ggml_diag_mask_inf_inplace(ctx, kq, 0);
         }
         kq = ggml_soft_max_inplace(ctx, kq);
 
@@ -2830,7 +2826,7 @@ public:
     // x: [N, n_token, embed_dim]
     struct ggml_tensor* forward(GGMLRunnerContext* ctx,
                                 struct ggml_tensor* x,
-                                bool mask = false) {
+                                struct ggml_tensor* mask = nullptr) {
         auto out_proj = std::dynamic_pointer_cast<Linear>(blocks[out_proj_name]);
 
         ggml_tensor* q;
@@ -2856,7 +2852,7 @@ public:
             v = v_proj->forward(ctx, x);
         }
 
-        x = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, q, k, v, n_head, nullptr, mask);  // [N, n_token, embed_dim]
+        x = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, q, k, v, n_head, mask);  // [N, n_token, embed_dim]
 
         x = out_proj->forward(ctx, x);  // [N, n_token, embed_dim]
         return x;
