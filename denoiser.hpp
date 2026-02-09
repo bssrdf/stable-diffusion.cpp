@@ -1754,7 +1754,7 @@ static bool sample_k_diffusion(sample_method_t method,
             };
 
             for (int i = 0; i < steps; i++) {
-                ggml_tensor* denoised = model(x, sigmas[i], i + 1);
+                ggml_tensor* denoised = model(x, sigmas[i], i + 1, steps);
                 if (denoised == nullptr) {
                     return false;
                 }
@@ -1863,7 +1863,7 @@ static bool sample_k_diffusion(sample_method_t method,
                 float sigma_from = sigmas[i];
                 float sigma_to   = sigmas[i + 1];
 
-                ggml_tensor* denoised = model(x, sigma_from, -(i + 1));
+                ggml_tensor* denoised = model(x, sigma_from, -(i + 1), steps);
                 if (denoised == nullptr) {
                     return false;
                 }
@@ -1915,7 +1915,7 @@ static bool sample_k_diffusion(sample_method_t method,
                         vec_x2[j]  = vec_x0[j] + h * a21 * eps1;
                     }
 
-                    ggml_tensor* denoised2 = model(x2, sigma_c2, i + 1);
+                    ggml_tensor* denoised2 = model(x2, sigma_c2, i + 1, steps);
                     if (denoised2 == nullptr) {
                         return false;
                     }
