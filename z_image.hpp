@@ -445,10 +445,17 @@ namespace ZImage {
                 img                 = ggml_concat(ctx->ggml_ctx, img, img_pad_tokens, 1);  // [N, n_img_token + n_img_pad_token, hidden_size]
             }
 
-            GGML_ASSERT(txt->ne[1] + img->ne[1] == pe->ne[3]);
+            // GGML_ASSERT(txt->ne[1] + img->ne[1] == pe->ne[3]);
+            GGML_ASSERT(pe->ne[0] % 4 == 0);
+            GGML_ASSERT(txt->ne[1] + img->ne[1] == pe->ne[0]/4);
 
-            auto txt_pe = ggml_ext_slice(ctx->ggml_ctx, pe, 3, 0, txt->ne[1]);
-            auto img_pe = ggml_ext_slice(ctx->ggml_ctx, pe, 3, txt->ne[1], pe->ne[3]);
+            // auto txt_pe = ggml_ext_slice(ctx->ggml_ctx, pe, 3, 0, txt->ne[1]);
+            // auto img_pe = ggml_ext_slice(ctx->ggml_ctx, pe, 3, txt->ne[1], pe->ne[3]);
+
+            auto txt_pe = ggml_view_2d(ctx->ggml_ctx, pe, txt->ne[1], 4, pe->nb[0]*(txt->ne[1] + img->ne[1]), 0);
+            auto img_pe = ggml_view_2d(ctx->ggml_ctx, pe, img->ne[1], 4, pe->nb[0]*(txt->ne[1] + img->ne[1]), txt->ne[1]*pe->nb[0]);
+            txt_pe = ggml_view_1d(ctx->ggml_ctx, ggml_cont(ctx->ggml_ctx, txt_pe), 4*txt->ne[1], 0);
+            img_pe = ggml_view_1d(ctx->ggml_ctx, ggml_cont(ctx->ggml_ctx, img_pe), 4*img->ne[1], 0);
 
             for (int i = 0; i < z_image_params.num_refiner_layers; i++) {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["context_refiner." + std::to_string(i)]);
@@ -579,7 +586,8 @@ namespace ZImage {
                                                z_image_params.axes_dim);
             int pos_len = static_cast<int>(pe_vec.size() / z_image_params.axes_dim_sum / 2);
             // LOG_DEBUG("pos_len %d", pos_len);
-            auto pe = ggml_new_tensor_4d(compute_ctx, GGML_TYPE_F32, 2, 2, z_image_params.axes_dim_sum / 2, pos_len);
+            // auto pe = ggml_new_tensor_4d(compute_ctx, GGML_TYPE_F32, 2, 2, z_image_params.axes_dim_sum / 2, pos_len);
+            auto pe = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_I32, (int64_t)pe_vec.size());
             // pe->data = pe_vec.data();
             // print_ggml_tensor(pe, true, "pe");
             // pe->data = nullptr;

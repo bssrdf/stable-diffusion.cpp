@@ -7,6 +7,18 @@
 #include "ggml_extend.hpp"
 
 namespace Rope {
+
+
+    struct RopeParams {
+         n_rot, sections, rope_type, n_ctx_orig, 
+        const float freq_base;
+        const float freq_scale;
+        const float ext_factor;
+        const float attn_factor;
+        const float beta_fast;
+        const float beta_slow;
+    };
+
     template <class T>
     __STATIC_INLINE__ std::vector<T> linspace(T start, T end, int num) {
         std::vector<T> result(num);
@@ -639,8 +651,14 @@ namespace Rope {
         // q,k,v: [N, L, n_head, d_head]
         // pe: [L, d_head/2, 2, 2]
         // return: [N, L, n_head*d_head]
-        q = apply_rope(ctx->ggml_ctx, q, pe, rope_interleaved);  // [N*n_head, L, d_head]
-        k = apply_rope(ctx->ggml_ctx, k, pe, rope_interleaved);  // [N*n_head, L, d_head]
+        // q = apply_rope(ctx->ggml_ctx, q, pe, rope_interleaved);  // [N*n_head, L, d_head]
+        // k = apply_rope(ctx->ggml_ctx, k, pe, rope_interleaved);  // [N*n_head, L, d_head]
+        q = ggml_rope_multi(
+                    ctx->ggml_ctx, q, pe, nullptr,
+                    n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
+                    ext_factor, attn_factor, beta_fast, beta_slow
+                    );
+
 
         auto x = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, q, k, v, v->ne[1], mask, true, ctx->flash_attn_enabled, kv_scale);  // [N, L, n_head*d_head]
         return x;
