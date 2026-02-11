@@ -96,7 +96,8 @@ namespace ZImage {
                 k = k_norm->forward(ctx, k);
             }
 
-            x = Rope::attention(ctx, q, k, v, pe, mask, 1.f / 128.f);  // [N, n_token, num_heads * head_dim]
+            // x = Rope::attention(ctx, q, k, v, pe, mask, params, 1.f / 128.f);  // [N, n_token, num_heads * head_dim]
+            x = Rope::attention_2(ctx, q, k, v, pe, mask, params, 1.f / 128.f);  // [N, n_token, num_heads * head_dim]
 
             x = out_proj->forward(ctx, x);  // [N, n_token, hidden_size]
             return x;
@@ -425,6 +426,10 @@ namespace ZImage {
             auto final_layer    = std::dynamic_pointer_cast<FinalLayer>(blocks["final_layer"]);
 
             struct Rope::RopeParams rpar;
+            rpar.freq_base = z_image_params.theta;
+            rpar.n_rot = z_image_params.axes_dim_sum;
+            rpar.rope_type = GGML_ROPE_TYPE_MROPE;
+            memcpy(rpar.sections, z_image_params.axes_dim.data(), sizeof(int)*z_image_params.axes_dim.size());
 
 
             auto txt_pad_token = params["cap_pad_token"];
@@ -450,6 +455,9 @@ namespace ZImage {
                 auto img_pad_tokens = ggml_repeat_4d(ctx->ggml_ctx, img_pad_token, img_pad_token->ne[0], n_img_pad_token, N, 1);
                 img                 = ggml_concat(ctx->ggml_ctx, img, img_pad_tokens, 1);  // [N, n_img_token + n_img_pad_token, hidden_size]
             }
+
+            // print_ggml_tensor(txt, true, "txt 1");
+            // print_ggml_tensor(img, true, "img 1");
 
             // GGML_ASSERT(txt->ne[1] + img->ne[1] == pe->ne[3]);
             GGML_ASSERT(pe->ne[0] % 4 == 0);
@@ -540,7 +548,8 @@ namespace ZImage {
     public:
         ZImageParams z_image_params;
         ZImageModel z_image;
-        std::vector<float> pe_vec;
+        // std::vector<float> pe_vec;
+        std::vector<int> pe_vec;
         std::vector<float> timestep_vec;
         SDVersion version;
 
