@@ -7,6 +7,7 @@
 #include "ggml_extend.hpp"
 #include "mmdit.hpp"
 
+
 // Ref: https://github.com/Alpha-VLLM/Lumina-Image-2.0/blob/main/models/model.py
 // Ref: https://github.com/huggingface/diffusers/pull/12703
 
@@ -45,6 +46,7 @@ namespace ZImage {
         struct ggml_tensor* forward(GGMLRunnerContext* ctx,
                                     struct ggml_tensor* x,
                                     struct ggml_tensor* pe,
+                                    struct Rope::RopeParams &params,
                                     struct ggml_tensor* mask = nullptr) {
             // x: [N, n_token, hidden_size]
             int64_t n_token = x->ne[1];
@@ -178,6 +180,7 @@ namespace ZImage {
         struct ggml_tensor* forward(GGMLRunnerContext* ctx,
                                     struct ggml_tensor* x,
                                     struct ggml_tensor* pe,
+                                    struct Rope::RopeParams &params,
                                     struct ggml_tensor* mask        = nullptr,
                                     struct ggml_tensor* adaln_input = nullptr) {
             auto attention       = std::dynamic_pointer_cast<JointAttention>(blocks["attention"]);
@@ -200,7 +203,7 @@ namespace ZImage {
 
                 auto residual = x;
                 x             = modulate(ctx->ggml_ctx, attention_norm1->forward(ctx, x), scale_msa);
-                x             = attention->forward(ctx, x, pe, mask);
+                x             = attention->forward(ctx, x, pe, params, mask);
                 x             = attention_norm2->forward(ctx, x);
                 x             = ggml_mul(ctx->ggml_ctx, x, ggml_tanh(ctx->ggml_ctx, gate_msa));
                 x             = ggml_add(ctx->ggml_ctx, x, residual);
@@ -216,7 +219,7 @@ namespace ZImage {
 
                 auto residual = x;
                 x             = attention_norm1->forward(ctx, x);
-                x             = attention->forward(ctx, x, pe, mask);
+                x             = attention->forward(ctx, x, pe, params, mask);
                 x             = attention_norm2->forward(ctx, x);
                 x             = ggml_add(ctx->ggml_ctx, x, residual);
 
@@ -421,6 +424,9 @@ namespace ZImage {
             auto norm_final     = std::dynamic_pointer_cast<RMSNorm>(blocks["norm_final"]);
             auto final_layer    = std::dynamic_pointer_cast<FinalLayer>(blocks["final_layer"]);
 
+            struct Rope::RopeParams rpar;
+
+
             auto txt_pad_token = params["cap_pad_token"];
             auto img_pad_token = params["x_pad_token"];
 
@@ -460,13 +466,13 @@ namespace ZImage {
             for (int i = 0; i < z_image_params.num_refiner_layers; i++) {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["context_refiner." + std::to_string(i)]);
 
-                txt = block->forward(ctx, txt, txt_pe, nullptr, nullptr);
+                txt = block->forward(ctx, txt, txt_pe, rpar, nullptr, nullptr);
             }
 
             for (int i = 0; i < z_image_params.num_refiner_layers; i++) {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["noise_refiner." + std::to_string(i)]);
 
-                img = block->forward(ctx, img, img_pe, nullptr, t_emb);
+                img = block->forward(ctx, img, img_pe, rpar, nullptr, t_emb);
             }
 
             auto txt_img = ggml_concat(ctx->ggml_ctx, txt, img, 1);  // [N, n_txt_token + n_txt_pad_token + n_img_token + n_img_pad_token, hidden_size]
@@ -474,7 +480,7 @@ namespace ZImage {
             for (int i = 0; i < z_image_params.num_layers; i++) {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["layers." + std::to_string(i)]);
 
-                txt_img = block->forward(ctx, txt_img, pe, nullptr, t_emb);
+                txt_img = block->forward(ctx, txt_img, pe, rpar, nullptr, t_emb);
             }
 
             txt_img = final_layer->forward(ctx, txt_img, t_emb);  // [N, n_txt_token + n_txt_pad_token + n_img_token + n_img_pad_token, ph*pw*C]

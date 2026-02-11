@@ -10,13 +10,20 @@ namespace Rope {
 
 
     struct RopeParams {
-         n_rot, sections, rope_type, n_ctx_orig, 
-        const float freq_base;
-        const float freq_scale;
-        const float ext_factor;
-        const float attn_factor;
-        const float beta_fast;
-        const float beta_slow;
+
+        int64_t n_rot = 0;
+        int sections[4] = {0};
+        int rope_type = 0;
+        int32_t n_ctx_orig = 0; // yarn
+        float freq_base = 1.f;
+        const float freq_scale = 1.f;
+        const float ext_factor = 0.f;
+        const float attn_factor = 1.f;
+        const float beta_fast = 32.f;
+        const float beta_slow = 1.f;
+        // RopeParams() {
+
+        // }
     };
 
     template <class T>
@@ -646,6 +653,7 @@ namespace Rope {
                                                     struct ggml_tensor* v,
                                                     struct ggml_tensor* pe,
                                                     struct ggml_tensor* mask,
+                                                    struct RopeParams &param,
                                                     float kv_scale        = 1.0f,
                                                     bool rope_interleaved = true) {
         // q,k,v: [N, L, n_head, d_head]
@@ -655,8 +663,9 @@ namespace Rope {
         // k = apply_rope(ctx->ggml_ctx, k, pe, rope_interleaved);  // [N*n_head, L, d_head]
         q = ggml_rope_multi(
                     ctx->ggml_ctx, q, pe, nullptr,
-                    n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
-                    ext_factor, attn_factor, beta_fast, beta_slow
+                    param.n_rot, param.sections, param.rope_type, param.n_ctx_orig,
+                    param.freq_base, param.freq_scale,
+                    param.ext_factor, param.attn_factor, param.beta_fast, param.beta_slow
                     );
 
 
