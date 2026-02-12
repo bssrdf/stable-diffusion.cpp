@@ -219,8 +219,8 @@ namespace Rope {
                 img_ids[i * w_len + j][0] = index;
                 // img_ids[i * w_len + j][1] = row_ids[i]+index;
                 // img_ids[i * w_len + j][2] = col_ids[j]+index;
-                img_ids[i * w_len + j][1] = i+index;
-                img_ids[i * w_len + j][2] = j+index;
+                img_ids[i * w_len + j][1] = i;
+                img_ids[i * w_len + j][2] = j;
             }
         }
 
@@ -632,9 +632,11 @@ namespace Rope {
         auto txt_ids           = std::vector<std::vector<int>>(bs * padded_context_len, std::vector<int>(4, 0));
         for (int i = 0; i < bs * padded_context_len; i++) {
             txt_ids[i][0] = (i % padded_context_len)+1;
-            txt_ids[i][1] = (i % padded_context_len)+1;
-            txt_ids[i][2] = (i % padded_context_len)+1;
+            // txt_ids[i][1] = (i % padded_context_len)+1;
+            // txt_ids[i][2] = (i % padded_context_len)+1;
         }
+
+
 
         int axes_dim_num = 4;
         int index        = padded_context_len + 1;
@@ -646,6 +648,8 @@ namespace Rope {
         //     std::vector<std::vector<float>> img_pad_ids(bs * img_pad_len, std::vector<float>(3, 0.f));
         //     img_ids = concat_ids(img_ids, img_pad_ids, bs);
         // }
+
+        // printf("txt: %zu, img %zu \n", txt_ids.size(), img_ids.size());
 
         auto ids = concat_ids_2(txt_ids, img_ids, bs);
 
@@ -667,7 +671,12 @@ namespace Rope {
                                                         bool circular_w,
                                                         const std::vector<int>& axes_dim) {
         std::vector<std::vector<int>> ids = gen_z_image_ids(h, w, patch_size, bs, context_len, seq_multi_of, ref_latents, increase_ref_index);
+        // printf(" ids: %zu, %zu\n",ids.size(), ids[0].size());
         std::vector<std::vector<int>> trans_ids = transpose_2(ids);
+        // int pos_len = (int)trans_ids[0].size();
+        // for (int i = 0; i < pos_len; i++) {
+        //     std::cout << trans_ids[0][i] << " " << trans_ids[1][i] << " " << trans_ids[2][i] << std::endl;
+        // }
         // std::vector<std::vector<int>> wrap_dims;
         // if ((circular_h || circular_w) && bs > 0 && axes_dim.size() >= 3) {
         //     int pad_h = (patch_size - (h % patch_size)) % patch_size;

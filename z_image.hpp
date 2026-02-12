@@ -280,8 +280,9 @@ namespace ZImage {
         bool qk_norm               = true;
         int64_t cap_feat_dim       = 2560;
         int theta                  = 256;
-        std::vector<int> axes_dim  = {32, 48, 48};
-        int64_t axes_dim_sum       = 128;
+        // std::vector<int> axes_dim  = {32, 48, 48};
+        std::vector<int> axes_dim  = {16, 24, 24};
+        int64_t axes_dim_sum       = 64;
     };
 
     class ZImageModel : public GGMLBlock {
@@ -427,8 +428,9 @@ namespace ZImage {
 
             struct Rope::RopeParams rpar;
             rpar.freq_base = z_image_params.theta;
-            rpar.n_rot = z_image_params.axes_dim_sum;
-            rpar.rope_type = GGML_ROPE_TYPE_MROPE;
+            // rpar.n_rot = z_image_params.axes_dim_sum;
+            rpar.n_rot = z_image_params.head_dim;
+            rpar.rope_type = GGML_ROPE_TYPE_IMROPE;
             memcpy(rpar.sections, z_image_params.axes_dim.data(), sizeof(int)*z_image_params.axes_dim.size());
 
 
@@ -476,6 +478,7 @@ namespace ZImage {
 
                 txt = block->forward(ctx, txt, txt_pe, rpar, nullptr, nullptr);
             }
+            ggml_set_name(txt, "txt_after_refiner");
 
             for (int i = 0; i < z_image_params.num_refiner_layers; i++) {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["noise_refiner." + std::to_string(i)]);
@@ -599,8 +602,10 @@ namespace ZImage {
                                                circular_y_enabled,
                                                circular_x_enabled,
                                                z_image_params.axes_dim);
-            int pos_len = static_cast<int>(pe_vec.size() / z_image_params.axes_dim_sum / 2);
+            // int pos_len = static_cast<int>(pe_vec.size() / z_image_params.axes_dim_sum / 2);
+            // int pos_len = static_cast<int>(pe_vec.size() / z_image_params.axes_dim_sum);
             // LOG_DEBUG("pos_len %d", pos_len);
+            // printf("pos_len %d, %zu\n", pos_len, pe_vec.size());
             // auto pe = ggml_new_tensor_4d(compute_ctx, GGML_TYPE_F32, 2, 2, z_image_params.axes_dim_sum / 2, pos_len);
             auto pe = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_I32, (int64_t)pe_vec.size());
             // pe->data = pe_vec.data();
