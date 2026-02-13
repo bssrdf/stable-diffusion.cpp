@@ -458,9 +458,6 @@ namespace ZImage {
                 img                 = ggml_concat(ctx->ggml_ctx, img, img_pad_tokens, 1);  // [N, n_img_token + n_img_pad_token, hidden_size]
             }
 
-            // print_ggml_tensor(txt, true, "txt 1");
-            // print_ggml_tensor(img, true, "img 1");
-
             // GGML_ASSERT(txt->ne[1] + img->ne[1] == pe->ne[3]);
             GGML_ASSERT(pe->ne[0] % 4 == 0);
             GGML_ASSERT(txt->ne[1] + img->ne[1] == pe->ne[0]/4);
@@ -473,12 +470,12 @@ namespace ZImage {
             txt_pe = ggml_view_1d(ctx->ggml_ctx, ggml_cont(ctx->ggml_ctx, txt_pe), 4*txt->ne[1], 0);
             img_pe = ggml_view_1d(ctx->ggml_ctx, ggml_cont(ctx->ggml_ctx, img_pe), 4*img->ne[1], 0);
 
+
             for (int i = 0; i < z_image_params.num_refiner_layers; i++) {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["context_refiner." + std::to_string(i)]);
 
                 txt = block->forward(ctx, txt, txt_pe, rpar, nullptr, nullptr);
             }
-            ggml_set_name(txt, "txt_after_refiner");
 
             for (int i = 0; i < z_image_params.num_refiner_layers; i++) {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["noise_refiner." + std::to_string(i)]);

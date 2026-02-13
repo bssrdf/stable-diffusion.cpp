@@ -643,11 +643,13 @@ namespace Rope {
         // auto img_ids     = gen_flux_img_ids(h, w, patch_size, bs, axes_dim_num, index);
         auto img_ids     = gen_flux_img_ids_2(h, w, patch_size, bs, axes_dim_num, index);
 
-        // int img_pad_len = bound_mod(static_cast<int>(img_ids.size() / bs), seq_multi_of);
-        // if (img_pad_len > 0) {
-        //     std::vector<std::vector<float>> img_pad_ids(bs * img_pad_len, std::vector<float>(3, 0.f));
-        //     img_ids = concat_ids(img_ids, img_pad_ids, bs);
-        // }
+        int img_pad_len = bound_mod(static_cast<int>(img_ids.size() / bs), seq_multi_of);
+        if (img_pad_len > 0) {
+            // std::vector<std::vector<float>> img_pad_ids(bs * img_pad_len, std::vector<float>(3, 0.f));
+            std::vector<std::vector<int>> img_pad_ids(bs * img_pad_len, std::vector<int>(4, 0.f));
+            // img_ids = concat_ids(img_ids, img_pad_ids, bs);
+            img_ids = concat_ids_2(img_ids, img_pad_ids, bs);
+        }
 
         // printf("txt: %zu, img %zu \n", txt_ids.size(), img_ids.size());
 
@@ -774,11 +776,6 @@ namespace Rope {
         // q,k,v: [N, L, n_head, d_head]
         // pe: [L, d_head/2, 2, 2]
         // return: [N, L, n_head*d_head]
-        // q = apply_rope(ctx->ggml_ctx, q, pe, rope_interleaved);  // [N*n_head, L, d_head]
-        // k = apply_rope(ctx->ggml_ctx, k, pe, rope_interleaved);  // [N*n_head, L, d_head]
-        // print_ggml_tensor(q, true, "q before rope");
-        // print_ggml_tensor(k, true, "k before rope");
-        // print_ggml_tensor(pe, true, "pe");
         q = ggml_rope_multi(
                     ctx->ggml_ctx, q, pe, nullptr,
                     param.n_rot, param.sections, param.rope_type, param.n_ctx_orig,
@@ -791,9 +788,6 @@ namespace Rope {
                     param.freq_base, param.freq_scale,
                     param.ext_factor, param.attn_factor, param.beta_fast, param.beta_slow
                     );
-        // print_ggml_tensor(q, true, "q after rope");
-        // print_ggml_tensor(k, true, "k after rope");
-        // print_ggml_tensor(v, true, "v after rope");
         q = ggml_cont(ctx->ggml_ctx, ggml_permute(ctx->ggml_ctx, q, 0, 2, 1, 3));  // [N, n_head, L,  d_head]
         q = ggml_reshape_3d(ctx->ggml_ctx, q, q->ne[0], q->ne[1], q->ne[2]*q->ne[3]);  // [N*n_head, L, d_head]
         k = ggml_cont(ctx->ggml_ctx, ggml_permute(ctx->ggml_ctx, k, 0, 2, 1, 3));  // [N, n_head, L,  d_head]
