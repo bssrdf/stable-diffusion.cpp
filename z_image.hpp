@@ -98,6 +98,7 @@ namespace ZImage {
 
             // x = Rope::attention(ctx, q, k, v, pe, mask, params, 1.f / 128.f);  // [N, n_token, num_heads * head_dim]
             x = Rope::attention_2(ctx, q, k, v, pe, mask, params, 1.f / 128.f);  // [N, n_token, num_heads * head_dim]
+            ggml_set_name(x, "x-aft-attn-0");
 
             x = out_proj->forward(ctx, x);  // [N, n_token, hidden_size]
             return x;
@@ -221,8 +222,12 @@ namespace ZImage {
                 auto residual = x;
                 x             = attention_norm1->forward(ctx, x);
                 x             = attention->forward(ctx, x, pe, params, mask);
+                ggml_set_name(x, "x-aft-attn-1");
                 x             = attention_norm2->forward(ctx, x);
                 x             = ggml_add(ctx->ggml_ctx, x, residual);
+
+                ggml_set_name(x, "x-middle-1");
+
 
                 residual = x;
                 x        = ffn_norm1->forward(ctx, x);
@@ -430,7 +435,8 @@ namespace ZImage {
             rpar.freq_base = z_image_params.theta;
             // rpar.n_rot = z_image_params.axes_dim_sum;
             rpar.n_rot = z_image_params.head_dim;
-            rpar.rope_type = GGML_ROPE_TYPE_IMROPE;
+            // rpar.rope_type = GGML_ROPE_TYPE_IMROPE;
+            rpar.rope_type = GGML_ROPE_TYPE_IMROPE_PERM;
             memcpy(rpar.sections, z_image_params.axes_dim.data(), sizeof(int)*z_image_params.axes_dim.size());
 
 
@@ -475,6 +481,7 @@ namespace ZImage {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["context_refiner." + std::to_string(i)]);
 
                 txt = block->forward(ctx, txt, txt_pe, rpar, nullptr, nullptr);
+                ggml_set_name(txt, "txt_aft_refiner");
             }
 
             for (int i = 0; i < z_image_params.num_refiner_layers; i++) {
@@ -619,6 +626,7 @@ namespace ZImage {
                                                       ref_latents);
 
             ggml_build_forward_expand(gf, out);
+            // ggml_graph_print(gf);
 
             return gf;
         }

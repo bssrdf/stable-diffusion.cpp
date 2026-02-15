@@ -1314,6 +1314,7 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         if (kv_scale != 1.0f) {
             v_in = ggml_ext_scale(ctx, v_in, kv_scale);
         }
+        ggml_set_name(v_in, "v-in-bef-flash-attn");
         v_in = ggml_cast(ctx, v_in, GGML_TYPE_F16);
 
         if (mask_in != nullptr) {
@@ -1340,8 +1341,10 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
 #endif
             mask_in = ggml_cast(ctx, mask_in, GGML_TYPE_F16);
         }
-
+        // ggml_set_name(q_in, "q-in-bef-flash-attn");
+        // ggml_set_name(k_in, "k-in-bef-flash-attn");
         auto out = ggml_flash_attn_ext(ctx, q_in, k_in, v_in, mask_in, scale / kv_scale, 0, 0);
+        ggml_set_name(out, "x-aft-flash-attn");
         ggml_flash_attn_ext_set_prec(out, GGML_PREC_F32);
         if (kv_scale != 1.0f) {
             out = ggml_ext_scale(ctx, out, 1.0f / kv_scale);
