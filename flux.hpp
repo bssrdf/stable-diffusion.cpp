@@ -123,12 +123,14 @@ namespace Flux {
         struct ggml_tensor* forward(GGMLRunnerContext* ctx,
                                     struct ggml_tensor* x,
                                     struct ggml_tensor* pe,
+                                    struct Rope::RopeParams &par,
                                     struct ggml_tensor* mask) {
             // x: [N, n_token, dim]
             // pe: [n_token, d_head/2, 2, 2]
             // return [N, n_token, dim]
             auto qkv = pre_attention(ctx, x);                                   // q,k,v: [N, n_token, n_head, d_head]
-            x        = Rope::attention(ctx, qkv[0], qkv[1], qkv[2], pe, mask);  // [N, n_token, dim]
+            // x        = Rope::attention(ctx, qkv[0], qkv[1], qkv[2], pe, mask);  // [N, n_token, dim]
+            x        = Rope::attention_2(ctx, qkv[0], qkv[1], qkv[2], pe, mask, par);  // [N, n_token, dim]
             x        = post_attention(ctx, x);                                  // [N, n_token, dim]
             return x;
         }
@@ -315,6 +317,7 @@ namespace Flux {
                                                                     struct ggml_tensor* txt,
                                                                     struct ggml_tensor* vec,
                                                                     struct ggml_tensor* pe,
+                                                                    struct Rope::RopeParams &par,
                                                                     struct ggml_tensor* mask            = nullptr,
                                                                     std::vector<ModulationOut> img_mods = {},
                                                                     std::vector<ModulationOut> txt_mods = {}) {
@@ -376,7 +379,8 @@ namespace Flux {
             auto k = ggml_concat(ctx->ggml_ctx, txt_k, img_k, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
             auto v = ggml_concat(ctx->ggml_ctx, txt_v, img_v, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
 
-            auto attn         = Rope::attention(ctx, q, k, v, pe, mask);  // [N, n_txt_token + n_img_token, n_head*d_head]
+            // auto attn         = Rope::attention(ctx, q, k, v, pe, mask);  // [N, n_txt_token + n_img_token, n_head*d_head]
+            auto attn         = Rope::attention_2(ctx, q, k, v, pe, mask, par);  // [N, n_txt_token + n_img_token, n_head*d_head]
             auto txt_attn_out = ggml_view_3d(ctx->ggml_ctx,
                                              attn,
                                              attn->ne[0],
@@ -464,6 +468,7 @@ namespace Flux {
                                     struct ggml_tensor* x,
                                     struct ggml_tensor* vec,
                                     struct ggml_tensor* pe,
+                                    struct Rope::RopeParams &par,
                                     struct ggml_tensor* mask        = nullptr,
                                     std::vector<ModulationOut> mods = {}) {
             // x: [N, n_token, hidden_size]
@@ -503,7 +508,8 @@ namespace Flux {
 
             q         = norm->query_norm(ctx, q);
             k         = norm->key_norm(ctx, k);
-            auto attn = Rope::attention(ctx, q, k, v, pe, mask);  // [N, n_token, hidden_size]
+            // auto attn = Rope::attention(ctx, q, k, v, pe, mask);  // [N, n_token, hidden_size]
+            auto attn = Rope::attention_2(ctx, q, k, v, pe, mask, par);  // [N, n_token, hidden_size]
 
             auto mlp = ggml_view_3d(ctx->ggml_ctx, qkv_mlp, mlp_hidden_dim * mlp_mult_factor, qkv_mlp->ne[1], qkv_mlp->ne[2], qkv_mlp->nb[1], qkv_mlp->nb[2], hidden_size * 3 * qkv_mlp->nb[0]);
             if (use_yak_mlp) {
@@ -744,7 +750,8 @@ namespace Flux {
         int num_heads             = 24;
         int depth                 = 19;
         int depth_single_blocks   = 38;
-        std::vector<int> axes_dim = {16, 56, 56};
+        // std::vector<int> axes_dim = {16, 56, 56};
+        std::vector<int> axes_dim = {8, 28, 28};
         int axes_dim_sum          = 128;
         int theta                 = 10000;
         bool qkv_bias             = true;
@@ -927,6 +934,14 @@ namespace Flux {
                 img = img_in->forward(ctx, img);
             }
 
+            struct Rope::RopeParams rpar;
+            rpar.freq_base = params.theta;
+            // rpar.n_rot = z_image_params.axes_dim_sum;
+            rpar.n_rot = params.axes_dim_sum;
+            // rpar.rope_type = GGML_ROPE_TYPE_IMROPE;
+            rpar.rope_type = GGML_ROPE_TYPE_IMROPE_PERM;
+            memcpy(rpar.sections, params.axes_dim.data(), sizeof(int)*params.axes_dim.size());
+
             struct ggml_tensor* vec;
             struct ggml_tensor* txt_img_mask = nullptr;
             if (params.is_chroma) {
@@ -999,7 +1014,7 @@ namespace Flux {
 
                 auto block = std::dynamic_pointer_cast<DoubleStreamBlock>(blocks["double_blocks." + std::to_string(i)]);
 
-                auto img_txt = block->forward(ctx, img, txt, vec, pe, txt_img_mask, ds_img_mods, ds_txt_mods);
+                auto img_txt = block->forward(ctx, img, txt, vec, pe, rpar, txt_img_mask, ds_img_mods, ds_txt_mods);
                 img          = img_txt.first;   // [N, n_img_token, hidden_size]
                 txt          = img_txt.second;  // [N, n_txt_token, hidden_size]
             }
@@ -1011,7 +1026,7 @@ namespace Flux {
                 }
                 auto block = std::dynamic_pointer_cast<SingleStreamBlock>(blocks["single_blocks." + std::to_string(i)]);
 
-                txt_img = block->forward(ctx, txt_img, vec, pe, txt_img_mask, ss_mods);
+                txt_img = block->forward(ctx, txt_img, vec, pe, rpar, txt_img_mask, ss_mods);
             }
 
             img = ggml_view_3d(ctx->ggml_ctx,
@@ -1239,7 +1254,8 @@ namespace Flux {
     public:
         FluxParams flux_params;
         Flux flux;
-        std::vector<float> pe_vec;
+        // std::vector<float> pe_vec;
+        std::vector<int> pe_vec;
         std::vector<float> mod_index_arange_vec;
         std::vector<float> dct_vec;
         SDVersion version;
@@ -1275,7 +1291,8 @@ namespace Flux {
                 flux_params.out_channels     = 128;
                 flux_params.mlp_ratio        = 3.f;
                 flux_params.theta            = 2000;
-                flux_params.axes_dim         = {32, 32, 32, 32};
+                // flux_params.axes_dim         = {32, 32, 32, 32};
+                flux_params.axes_dim         = {16, 16, 16, 16};
                 flux_params.vec_in_dim       = 0;
                 flux_params.qkv_bias         = false;
                 flux_params.disable_bias     = true;
@@ -1467,7 +1484,7 @@ namespace Flux {
                 txt_arange_dims = {1, 2};
             }
 
-            pe_vec      = Rope::gen_flux_pe(static_cast<int>(x->ne[1]),
+            pe_vec      = Rope::gen_flux_pe_2(static_cast<int>(x->ne[1]),
                                             static_cast<int>(x->ne[0]),
                                             flux_params.patch_size,
                                             static_cast<int>(x->ne[3]),
@@ -1480,9 +1497,11 @@ namespace Flux {
                                             circular_y_enabled,
                                             circular_x_enabled,
                                             flux_params.axes_dim);
-            int pos_len = static_cast<int>(pe_vec.size() / flux_params.axes_dim_sum / 2);
+            // int pos_len = static_cast<int>(pe_vec.size() / flux_params.axes_dim_sum / 2);
             // LOG_DEBUG("pos_len %d", pos_len);
-            auto pe = ggml_new_tensor_4d(compute_ctx, GGML_TYPE_F32, 2, 2, flux_params.axes_dim_sum / 2, pos_len);
+            // auto pe = ggml_new_tensor_4d(compute_ctx, GGML_TYPE_F32, 2, 2, flux_params.axes_dim_sum / 2, pos_len);
+            // auto pe = ggml_new_tensor_4d(compute_ctx, GGML_TYPE_F32, 2, 2, flux_params.axes_dim_sum / 2, pos_len);
+             auto pe = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_I32, (int64_t)pe_vec.size());
             // pe->data = pe_vec.data();
             // print_ggml_tensor(pe);
             // pe->data = nullptr;
