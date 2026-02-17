@@ -553,9 +553,9 @@ namespace ZImage {
             if(context->type != GGML_TYPE_BF16){
                 context = ggml_cast(ctx->ggml_ctx, context, GGML_TYPE_BF16);
             }
-            if(pe->type != GGML_TYPE_BF16){
-                pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_BF16);
-            }
+            // if(pe->type != GGML_TYPE_BF16){
+            //     pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_BF16);
+            // }
 
             auto out = forward_core(ctx, img, timestep, context, pe);
 

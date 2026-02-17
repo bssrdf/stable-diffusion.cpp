@@ -1239,9 +1239,9 @@ namespace Flux {
             if(context->type == GGML_TYPE_F32){
                 context = ggml_cast(ctx->ggml_ctx, context, GGML_TYPE_BF16);
             }
-            if(pe && pe->type == GGML_TYPE_F32){
-                pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_BF16);
-            }
+            // if(pe && pe->type == GGML_TYPE_F32){
+            //     pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_BF16);
+            // }
             if(guidance && guidance->type == GGML_TYPE_F32){
                 guidance = ggml_cast(ctx->ggml_ctx, guidance, GGML_TYPE_BF16);
             }
