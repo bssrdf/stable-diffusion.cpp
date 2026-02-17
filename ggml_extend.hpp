@@ -1438,7 +1438,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
             if (mask_in->type != GGML_TYPE_F16)
                 mask_in = ggml_cast(ctx, mask_in, GGML_TYPE_F16);
         }
-
+        // ggml_set_name(q_in, "q-in-bef-flash-attn");
+        // ggml_set_name(k_in, "k-in-bef-flash-attn");
         auto out = ggml_flash_attn_ext(ctx, q_in, k_in, v_in, mask_in, scale / kv_scale, 0, 0);
         // int64_t *ne = out->ne;
         // printf("FA->type %s, %f, (%zu, %zu, %zu, %zu) \n",
@@ -1446,6 +1447,8 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_attention_ext(struct ggml_context
         // ggml_flash_attn_ext_set_prec(out, GGML_PREC_F32);
         // printf("%s, %d: out->type %s \n", __FUNCTION__, __LINE__,
         //             ggml_type_name(out->type)       );
+        ggml_set_name(out, "x-aft-flash-attn");
+        // ggml_flash_attn_ext_set_prec(out, GGML_PREC_F32);
         if (kv_scale != 1.0f) {
             out = ggml_ext_scale(ctx, out, 1.0f / kv_scale);
         }

@@ -7,6 +7,7 @@
 #include "ggml_extend.hpp"
 #include "mmdit.hpp"
 
+
 // Ref: https://github.com/Alpha-VLLM/Lumina-Image-2.0/blob/main/models/model.py
 // Ref: https://github.com/huggingface/diffusers/pull/12703
 
@@ -45,6 +46,7 @@ namespace ZImage {
         struct ggml_tensor* forward(GGMLRunnerContext* ctx,
                                     struct ggml_tensor* x,
                                     struct ggml_tensor* pe,
+                                    struct Rope::RopeParams &params,
                                     struct ggml_tensor* mask = nullptr) {
             // x: [N, n_token, hidden_size]
             int64_t n_token = x->ne[1];
@@ -94,7 +96,9 @@ namespace ZImage {
                 k = k_norm->forward(ctx, k);
             }
 
-            x = Rope::attention(ctx, q, k, v, pe, mask, 1.f / 128.f);  // [N, n_token, num_heads * head_dim]
+            // x = Rope::attention(ctx, q, k, v, pe, mask, params, 1.f / 128.f);  // [N, n_token, num_heads * head_dim]
+            x = Rope::attention_2(ctx, q, k, v, pe, mask, params, 1.f / 128.f);  // [N, n_token, num_heads * head_dim]
+            ggml_set_name(x, "x-aft-attn-0");
 
             x = out_proj->forward(ctx, x);  // [N, n_token, hidden_size]
             return x;
@@ -178,6 +182,7 @@ namespace ZImage {
         struct ggml_tensor* forward(GGMLRunnerContext* ctx,
                                     struct ggml_tensor* x,
                                     struct ggml_tensor* pe,
+                                    struct Rope::RopeParams &params,
                                     struct ggml_tensor* mask        = nullptr,
                                     struct ggml_tensor* adaln_input = nullptr) {
             auto attention       = std::dynamic_pointer_cast<JointAttention>(blocks["attention"]);
@@ -200,7 +205,7 @@ namespace ZImage {
 
                 auto residual = x;
                 x             = modulate(ctx->ggml_ctx, attention_norm1->forward(ctx, x), scale_msa);
-                x             = attention->forward(ctx, x, pe, mask);
+                x             = attention->forward(ctx, x, pe, params, mask);
                 x             = attention_norm2->forward(ctx, x);
                 x             = ggml_mul(ctx->ggml_ctx, x, ggml_tanh(ctx->ggml_ctx, gate_msa));
                 x             = ggml_add(ctx->ggml_ctx, x, residual);
@@ -216,9 +221,13 @@ namespace ZImage {
 
                 auto residual = x;
                 x             = attention_norm1->forward(ctx, x);
-                x             = attention->forward(ctx, x, pe, mask);
+                x             = attention->forward(ctx, x, pe, params, mask);
+                ggml_set_name(x, "x-aft-attn-1");
                 x             = attention_norm2->forward(ctx, x);
                 x             = ggml_add(ctx->ggml_ctx, x, residual);
+
+                ggml_set_name(x, "x-middle-1");
+
 
                 residual = x;
                 x        = ffn_norm1->forward(ctx, x);
@@ -276,8 +285,9 @@ namespace ZImage {
         bool qk_norm               = true;
         int64_t cap_feat_dim       = 2560;
         int theta                  = 256;
-        std::vector<int> axes_dim  = {32, 48, 48};
-        int64_t axes_dim_sum       = 128;
+        // std::vector<int> axes_dim  = {32, 48, 48};
+        std::vector<int> axes_dim  = {16, 24, 24};
+        int64_t axes_dim_sum       = 64;
     };
 
     class ZImageModel : public GGMLBlock {
@@ -423,6 +433,15 @@ namespace ZImage {
             auto norm_final     = std::dynamic_pointer_cast<RMSNorm>(blocks["norm_final"]);
             auto final_layer    = std::dynamic_pointer_cast<FinalLayer>(blocks["final_layer"]);
 
+            struct Rope::RopeParams rpar;
+            rpar.freq_base = z_image_params.theta;
+            // rpar.n_rot = z_image_params.axes_dim_sum;
+            rpar.n_rot = z_image_params.head_dim;
+            // rpar.rope_type = GGML_ROPE_TYPE_IMROPE;
+            rpar.rope_type = GGML_ROPE_TYPE_IMROPE_PERM;
+            memcpy(rpar.sections, z_image_params.axes_dim.data(), sizeof(int)*z_image_params.axes_dim.size());
+
+
             auto txt_pad_token = params["cap_pad_token"];
             auto img_pad_token = params["x_pad_token"];
 
@@ -454,28 +473,37 @@ namespace ZImage {
                 img                 = ggml_concat(ctx->ggml_ctx, img, img_pad_tokens, 1);  // [N, n_img_token + n_img_pad_token, hidden_size]
             }
 
-            GGML_ASSERT(txt->ne[1] + img->ne[1] == pe->ne[3]);
+            // GGML_ASSERT(txt->ne[1] + img->ne[1] == pe->ne[3]);
+            GGML_ASSERT(pe->ne[0] % 4 == 0);
+            GGML_ASSERT(txt->ne[1] + img->ne[1] == pe->ne[0]/4);
 
-            auto txt_pe = ggml_ext_slice(ctx->ggml_ctx, pe, 3, 0, txt->ne[1]);
-            auto img_pe = ggml_ext_slice(ctx->ggml_ctx, pe, 3, txt->ne[1], pe->ne[3]);
+            // auto txt_pe = ggml_ext_slice(ctx->ggml_ctx, pe, 3, 0, txt->ne[1]);
+            // auto img_pe = ggml_ext_slice(ctx->ggml_ctx, pe, 3, txt->ne[1], pe->ne[3]);
+
+            auto txt_pe = ggml_view_2d(ctx->ggml_ctx, pe, txt->ne[1], 4, pe->nb[0]*(txt->ne[1] + img->ne[1]), 0);
+            auto img_pe = ggml_view_2d(ctx->ggml_ctx, pe, img->ne[1], 4, pe->nb[0]*(txt->ne[1] + img->ne[1]), txt->ne[1]*pe->nb[0]);
+            txt_pe = ggml_view_1d(ctx->ggml_ctx, ggml_cont(ctx->ggml_ctx, txt_pe), 4*txt->ne[1], 0);
+            img_pe = ggml_view_1d(ctx->ggml_ctx, ggml_cont(ctx->ggml_ctx, img_pe), 4*img->ne[1], 0);
+
 
             for (int i = 0; i < z_image_params.num_refiner_layers; i++) {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["context_refiner." + std::to_string(i)]);
 
-                txt = block->forward(ctx, txt, txt_pe, nullptr, nullptr);
+                txt = block->forward(ctx, txt, txt_pe, rpar, nullptr, nullptr);
+                ggml_set_name(txt, "txt_aft_refiner");
             }
 
             for (int i = 0; i < z_image_params.num_refiner_layers; i++) {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["noise_refiner." + std::to_string(i)]);
 
-                img = block->forward(ctx, img, img_pe, nullptr, t_emb);
+                img = block->forward(ctx, img, img_pe, rpar, nullptr, t_emb);
             }
             auto txt_img = ggml_concat(ctx->ggml_ctx, txt, img, 1);  // [N, n_txt_token + n_txt_pad_token + n_img_token + n_img_pad_token, hidden_size]
 
             for (int i = 0; i < z_image_params.num_layers; i++) {
                 auto block = std::dynamic_pointer_cast<JointTransformerBlock>(blocks["layers." + std::to_string(i)]);
 
-                txt_img = block->forward(ctx, txt_img, pe, nullptr, t_emb);
+                txt_img = block->forward(ctx, txt_img, pe, rpar, nullptr, t_emb);
             }
 
             txt_img = final_layer->forward(ctx, txt_img, t_emb);  // [N, n_txt_token + n_txt_pad_token + n_img_token + n_img_pad_token, ph*pw*C]
@@ -548,7 +576,8 @@ namespace ZImage {
     public:
         ZImageParams z_image_params;
         ZImageModel z_image;
-        std::vector<float> pe_vec;
+        // std::vector<float> pe_vec;
+        std::vector<int> pe_vec;
         std::vector<float> timestep_vec;
         SDVersion version;
 
@@ -598,9 +627,12 @@ namespace ZImage {
                                                circular_y_enabled,
                                                circular_x_enabled,
                                                z_image_params.axes_dim);
-            int pos_len = static_cast<int>(pe_vec.size() / z_image_params.axes_dim_sum / 2);
+            // int pos_len = static_cast<int>(pe_vec.size() / z_image_params.axes_dim_sum / 2);
+            // int pos_len = static_cast<int>(pe_vec.size() / z_image_params.axes_dim_sum);
             // LOG_DEBUG("pos_len %d", pos_len);
-            auto pe = ggml_new_tensor_4d(compute_ctx, GGML_TYPE_F32, 2, 2, z_image_params.axes_dim_sum / 2, pos_len);
+            // printf("pos_len %d, %zu\n", pos_len, pe_vec.size());
+            // auto pe = ggml_new_tensor_4d(compute_ctx, GGML_TYPE_F32, 2, 2, z_image_params.axes_dim_sum / 2, pos_len);
+            auto pe = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_I32, (int64_t)pe_vec.size());
             // pe->data = pe_vec.data();
             // print_ggml_tensor(pe, true, "pe");
             // pe->data = nullptr;
