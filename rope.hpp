@@ -865,7 +865,7 @@ namespace Rope {
         // ggml_set_name(k, "rope_cont_k");
         k = ggml_reshape_3d(ctx->ggml_ctx, k, k->ne[0], k->ne[1], k->ne[2]*k->ne[3]);  // [N*n_head, L, d_head]
         ggml_set_name(k, "rope_reshape_k");
-        auto x = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, q, k, v, v->ne[1], mask, true, ctx->flash_attn_enabled, kv_scale);  // [N, L, n_head*d_head]
+        auto x = ggml_ext_attention_ext(ctx->ggml_ctx, ctx->backend, q, k, v, v->ne[1], mask, true, ctx->flash_attn_enabled, kv_scale, GGML_TYPE_BF16);  // [N, L, n_head*d_head]
         // ggml_set_name(x, "x-aft-attn-0");
         return x;
     }
