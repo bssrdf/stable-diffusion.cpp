@@ -56,7 +56,7 @@ namespace Qwen {
             // return: [N, embedding_dim]
             auto timestep_embedder = std::dynamic_pointer_cast<TimestepEmbedding>(blocks["timestep_embedder"]);
 
-            auto timesteps_proj = ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, 256, 10000, 1.f);
+            auto timesteps_proj = ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, 256, 10000, 1.f, GGML_TYPE_BF16);
             auto timesteps_emb  = timestep_embedder->forward(ctx, timesteps_proj);
             return timesteps_emb;
         }
@@ -681,7 +681,7 @@ namespace Qwen {
 
             if(out->type != GGML_TYPE_F32)
                 out = ggml_cast(runner_ctx.ggml_ctx, out, GGML_TYPE_F32);
-
+            ggml_set_name(out, "qwen_image_out");
             ggml_build_forward_expand(gf, out);
             // ggml_graph_print(gf);
 
