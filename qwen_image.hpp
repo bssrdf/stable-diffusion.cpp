@@ -111,6 +111,7 @@ namespace Qwen {
                                                       struct ggml_tensor* img,
                                                       struct ggml_tensor* txt,
                                                       struct ggml_tensor* pe,
+                                                      struct Rope::RopeParams &par,
                                                       struct ggml_tensor* mask = nullptr) {
             // img: [N, n_img_token, hidden_size]
             // txt: [N, n_txt_token, hidden_size]
@@ -162,7 +163,8 @@ namespace Qwen {
             auto k = ggml_concat(ctx->ggml_ctx, txt_k, img_k, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
             auto v = ggml_concat(ctx->ggml_ctx, txt_v, img_v, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
 
-            auto attn         = Rope::attention(ctx, q, k, v, pe, mask, (1.0f / 128.f));  // [N, n_txt_token + n_img_token, n_head*d_head]
+            // auto attn         = Rope::attention(ctx, q, k, v, pe, mask, (1.0f / 128.f));  // [N, n_txt_token + n_img_token, n_head*d_head]
+            auto attn         = Rope::attention_2(ctx, q, k, v, pe, mask, par, (1.0f / 128.f));  // [N, n_txt_token + n_img_token, n_head*d_head]
             auto txt_attn_out = ggml_view_3d(ctx->ggml_ctx,
                                              attn,
                                              attn->ne[0],
@@ -254,6 +256,7 @@ namespace Qwen {
                                                               struct ggml_tensor* txt,
                                                               struct ggml_tensor* t_emb,
                                                               struct ggml_tensor* pe,
+                                                              struct Rope::RopeParams &par,
                                                               struct ggml_tensor* modulate_index = nullptr) {
             // img: [N, n_img_token, hidden_size]
             // txt: [N, n_txt_token, hidden_size]
@@ -292,7 +295,7 @@ namespace Qwen {
             auto txt_modulated = Flux::modulate(ctx->ggml_ctx, txt_normed, txt_mod_param_vec[0], txt_mod_param_vec[1]);
             auto txt_gate1     = txt_mod_param_vec[2];
 
-            auto [img_attn_output, txt_attn_output] = attn->forward(ctx, img_modulated, txt_modulated, pe);
+            auto [img_attn_output, txt_attn_output] = attn->forward(ctx, img_modulated, txt_modulated, pe, par);
 
             img = ggml_add(ctx->ggml_ctx, img, ggml_mul(ctx->ggml_ctx, img_attn_output, img_gate1));
             txt = ggml_add(ctx->ggml_ctx, txt, ggml_mul(ctx->ggml_ctx, txt_attn_output, txt_gate1));
@@ -357,7 +360,8 @@ namespace Qwen {
         int64_t num_attention_heads = 24;
         int64_t joint_attention_dim = 3584;
         int theta                   = 10000;
-        std::vector<int> axes_dim   = {16, 56, 56};
+        // std::vector<int> axes_dim   = {16, 56, 56};
+        std::vector<int> axes_dim = {8, 28, 28};
         int axes_dim_sum            = 128;
         bool zero_cond_t            = false;
     };
@@ -466,6 +470,15 @@ namespace Qwen {
             auto norm_out        = std::dynamic_pointer_cast<AdaLayerNormContinuous>(blocks["norm_out"]);
             auto proj_out        = std::dynamic_pointer_cast<Linear>(blocks["proj_out"]);
 
+
+            struct Rope::RopeParams rpar;
+            rpar.freq_base = params.theta;
+            // rpar.n_rot = z_image_params.axes_dim_sum;
+            rpar.n_rot = params.axes_dim_sum;
+            // rpar.rope_type = GGML_ROPE_TYPE_IMROPE;
+            rpar.rope_type = GGML_ROPE_TYPE_IMROPE_PERM;
+            memcpy(rpar.sections, params.axes_dim.data(), sizeof(int)*params.axes_dim.size());
+
             auto t_emb = time_text_embed->forward(ctx, timestep);
             if (params.zero_cond_t) {
                 auto t_emb_0 = time_text_embed->forward(ctx, ggml_ext_zeros(ctx->ggml_ctx, timestep->ne[0], timestep->ne[1], timestep->ne[2], timestep->ne[3]));
@@ -478,7 +491,7 @@ namespace Qwen {
             for (int i = 0; i < params.num_layers; i++) {
                 auto block = std::dynamic_pointer_cast<QwenImageTransformerBlock>(blocks["transformer_blocks." + std::to_string(i)]);
 
-                auto result = block->forward(ctx, img, txt, t_emb, pe, modulate_index);
+                auto result = block->forward(ctx, img, txt, t_emb, pe, rpar, modulate_index);
                 img         = result.first;
                 txt         = result.second;
             }
@@ -522,7 +535,7 @@ namespace Qwen {
                 }
             }
 
-             if(img->type != GGML_TYPE_BF16){
+            if(img->type != GGML_TYPE_BF16){
                 img = ggml_cast(ctx->ggml_ctx, img, GGML_TYPE_BF16);
             }
             if(timestep->type != GGML_TYPE_BF16){
@@ -531,9 +544,9 @@ namespace Qwen {
             if(context->type != GGML_TYPE_BF16){
                 context = ggml_cast(ctx->ggml_ctx, context, GGML_TYPE_BF16);
             }
-            if(pe->type != GGML_TYPE_BF16){
-                pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_BF16);
-            }
+            // if(pe->type != GGML_TYPE_BF16){
+            //     pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_BF16);
+            // }
 
             int64_t h_len = ((H + (params.patch_size / 2)) / params.patch_size);
             int64_t w_len = ((W + (params.patch_size / 2)) / params.patch_size);
@@ -560,7 +573,8 @@ namespace Qwen {
     public:
         QwenImageParams qwen_image_params;
         QwenImageModel qwen_image;
-        std::vector<float> pe_vec;
+        // std::vector<float> pe_vec;
+        std::vector<int> pe_vec;
         std::vector<float> modulate_index_vec;
         SDVersion version;
 
@@ -625,7 +639,7 @@ namespace Qwen {
                 ref_latents[i] = to_backend(ref_latents[i]);
             }
 
-            pe_vec      = Rope::gen_qwen_image_pe(static_cast<int>(x->ne[1]),
+            pe_vec      = Rope::gen_qwen_image_pe_2(static_cast<int>(x->ne[1]),
                                                   static_cast<int>(x->ne[0]),
                                                   qwen_image_params.patch_size,
                                                   static_cast<int>(x->ne[3]),
@@ -636,9 +650,10 @@ namespace Qwen {
                                                   circular_y_enabled,
                                                   circular_x_enabled,
                                                   qwen_image_params.axes_dim);
-            int pos_len = static_cast<int>(pe_vec.size() / qwen_image_params.axes_dim_sum / 2);
+            // int pos_len = static_cast<int>(pe_vec.size() / qwen_image_params.axes_dim_sum / 2);
             // LOG_DEBUG("pos_len %d", pos_len);
-            auto pe = ggml_new_tensor_4d(compute_ctx, GGML_TYPE_F32, 2, 2, qwen_image_params.axes_dim_sum / 2, pos_len);
+            // auto pe = ggml_new_tensor_4d(compute_ctx, GGML_TYPE_F32, 2, 2, qwen_image_params.axes_dim_sum / 2, pos_len);
+            auto pe = ggml_new_tensor_1d(compute_ctx, GGML_TYPE_I32, (int64_t)pe_vec.size());
             // pe->data = pe_vec.data();
             // print_ggml_tensor(pe, true, "pe");
             // pe->data = nullptr;
