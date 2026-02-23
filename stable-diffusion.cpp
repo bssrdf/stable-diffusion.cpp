@@ -602,6 +602,10 @@ public:
                                                                             "first_stage_model",
                                                                             vae_decode_only,
                                                                             version);
+                    if (sd_ctx_params->vae_conv_direct) {
+                        LOG_INFO("Using Conv3d direct in the vae model");
+                        first_stage_model->set_conv2d_direct_enabled(true);
+                    }
                     first_stage_model->alloc_params_buffer();
                     first_stage_model->get_param_tensors(tensors, "first_stage_model");
                 } else if (version == VERSION_CHROMA_RADIANCE) {

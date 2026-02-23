@@ -1191,12 +1191,20 @@ __STATIC_INLINE__ struct ggml_tensor* ggml_ext_conv_3d(struct ggml_context* ctx,
                                                        int p2 = 0,
                                                        int d0 = 1,
                                                        int d1 = 1,
-                                                       int d2 = 1) {
+                                                       int d2 = 1,
+                                                       bool direct = false) {
     int64_t OC = w->ne[3] / IC;
     int64_t N  = x->ne[3] / IC;
     // printf("(N,C,K,D,H,W,KD,KH,KW %zu, %zu, %zu, %zu, %zu, %zu, %zu, %zu, %zu)\n", N, IC, OC,
     //     x->ne[2], x->ne[1], x->ne[0], w->ne[2], w->ne[1], w->ne[0]);
-    x          = ggml_conv_3d(ctx, w, x, IC, s0, s1, s2, p0, p1, p2, d0, d1, d2);
+    // printf(" conv3d inp type %s, weight type %s \n", ggml_type_name(x->type), ggml_type_name(w->type));
+    if(direct){
+        x    =  ggml_conv_3d_direct(ctx, w, x, s0, s1, s2, p0, p1, p2, d0, d1, d2, IC, N, OC);
+    }
+    else{
+        x    = ggml_conv_3d(ctx, w, x, IC, s0, s1, s2, p0, p1, p2, d0, d1, d2);
+    }
+    // printf(" conv3d res %s \n", ggml_type_name(x->type));
 
     if (b != nullptr) {
         b = ggml_reshape_4d(ctx, b, 1, 1, 1, b->ne[0]);  // [OC, 1, 1, 1]

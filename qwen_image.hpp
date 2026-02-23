@@ -522,6 +522,19 @@ namespace Qwen {
                 }
             }
 
+             if(img->type != GGML_TYPE_BF16){
+                img = ggml_cast(ctx->ggml_ctx, img, GGML_TYPE_BF16);
+            }
+            if(timestep->type != GGML_TYPE_BF16){
+                timestep = ggml_cast(ctx->ggml_ctx, timestep, GGML_TYPE_BF16);
+            }
+            if(context->type != GGML_TYPE_BF16){
+                context = ggml_cast(ctx->ggml_ctx, context, GGML_TYPE_BF16);
+            }
+            if(pe->type != GGML_TYPE_BF16){
+                pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_BF16);
+            }
+
             int64_t h_len = ((H + (params.patch_size / 2)) / params.patch_size);
             int64_t w_len = ((W + (params.patch_size / 2)) / params.patch_size);
 
@@ -666,7 +679,11 @@ namespace Qwen {
                                                          ref_latents,
                                                          modulate_index);
 
+            if(out->type != GGML_TYPE_F32)
+                out = ggml_cast(runner_ctx.ggml_ctx, out, GGML_TYPE_F32);
+
             ggml_build_forward_expand(gf, out);
+            // ggml_graph_print(gf);
 
             return gf;
         }
