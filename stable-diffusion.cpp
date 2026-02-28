@@ -532,7 +532,8 @@ public:
                                                                    tensor_storage_map,
                                                                    "model.diffusion_model",
                                                                    version,
-                                                                   sd_ctx_params->qwen_image_zero_cond_t);
+                                                                   sd_ctx_params->qwen_image_zero_cond_t,
+                                                                   sd_ctx_params->fused_attn_qkv);
             } else if (sd_version_is_z_image(version)) {
                 cond_stage_model = std::make_shared<LLMEmbedder>(clip_backend,
                                                                  offload_params_to_cpu,
@@ -2966,6 +2967,7 @@ void sd_ctx_params_init(sd_ctx_params_t* sd_ctx_params) {
     sd_ctx_params->chroma_use_dit_mask     = true;
     sd_ctx_params->chroma_use_t5_mask      = false;
     sd_ctx_params->chroma_t5_mask_pad      = 1;
+    sd_ctx_params->fused_attn_qkv          = false;
     sd_ctx_params->flow_shift              = INFINITY;
 }
 

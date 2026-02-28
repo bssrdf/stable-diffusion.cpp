@@ -201,6 +201,7 @@ typedef struct {
     bool chroma_use_t5_mask;
     int chroma_t5_mask_pad;
     bool qwen_image_zero_cond_t;
+    bool fused_attn_qkv;
     float flow_shift;
 } sd_ctx_params_t;
 

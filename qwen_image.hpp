@@ -65,6 +65,8 @@ namespace Qwen {
     struct QwenImageAttention : public GGMLBlock {
     protected:
         int64_t dim_head;
+        int64_t num_heads;
+        bool  fused_qkv;
 
     public:
         QwenImageAttention(int64_t query_dim,
@@ -74,22 +76,30 @@ namespace Qwen {
                            int64_t out_context_dim = 0,
                            bool bias               = true,
                            bool out_bias           = true,
+                           bool fqkv               = false,
                            float eps               = 1e-6)
-            : dim_head(dim_head) {
+            : dim_head(dim_head), fused_qkv(fqkv), num_heads(num_heads) {
             int64_t inner_dim = out_dim > 0 ? out_dim : dim_head * num_heads;
             out_dim           = out_dim > 0 ? out_dim : query_dim;
             out_context_dim   = out_context_dim > 0 ? out_context_dim : query_dim;
-
-            blocks["to_q"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, bias));
-            blocks["to_k"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, bias));
-            blocks["to_v"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, bias));
+            if (fused_qkv) {
+                blocks["to_qkv"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, 3*inner_dim, bias));
+            } else {
+                blocks["to_q"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, bias));
+                blocks["to_k"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, bias));
+                blocks["to_v"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, bias));
+            }
 
             blocks["norm_q"] = std::shared_ptr<GGMLBlock>(new RMSNorm(dim_head, eps));
             blocks["norm_k"] = std::shared_ptr<GGMLBlock>(new RMSNorm(dim_head, eps));
 
-            blocks["add_q_proj"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, bias));
-            blocks["add_k_proj"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, bias));
-            blocks["add_v_proj"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, bias));
+            if (fused_qkv) {
+                blocks["add_qkv_proj"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, 3*inner_dim, bias));
+            } else{
+                blocks["add_q_proj"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, bias));
+                blocks["add_k_proj"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, bias));
+                blocks["add_v_proj"] = std::shared_ptr<GGMLBlock>(new Linear(query_dim, inner_dim, bias));
+            }
 
             blocks["norm_added_q"] = std::shared_ptr<GGMLBlock>(new RMSNorm(dim_head, eps));
             blocks["norm_added_k"] = std::shared_ptr<GGMLBlock>(new RMSNorm(dim_head, eps));
@@ -121,47 +131,86 @@ namespace Qwen {
             auto norm_q = std::dynamic_pointer_cast<UnaryBlock>(blocks["norm_q"]);
             auto norm_k = std::dynamic_pointer_cast<UnaryBlock>(blocks["norm_k"]);
 
-            auto to_q     = std::dynamic_pointer_cast<Linear>(blocks["to_q"]);
-            auto to_k     = std::dynamic_pointer_cast<Linear>(blocks["to_k"]);
-            auto to_v     = std::dynamic_pointer_cast<Linear>(blocks["to_v"]);
+
             auto to_out_0 = std::dynamic_pointer_cast<Linear>(blocks["to_out.0"]);
 
             auto norm_added_q = std::dynamic_pointer_cast<UnaryBlock>(blocks["norm_added_q"]);
             auto norm_added_k = std::dynamic_pointer_cast<UnaryBlock>(blocks["norm_added_k"]);
 
-            auto add_q_proj = std::dynamic_pointer_cast<Linear>(blocks["add_q_proj"]);
-            auto add_k_proj = std::dynamic_pointer_cast<Linear>(blocks["add_k_proj"]);
-            auto add_v_proj = std::dynamic_pointer_cast<Linear>(blocks["add_v_proj"]);
             auto to_add_out = std::dynamic_pointer_cast<Linear>(blocks["to_add_out"]);
 
             int64_t N           = img->ne[2];
             int64_t n_img_token = img->ne[1];
             int64_t n_txt_token = txt->ne[1];
 
-            auto img_q        = to_q->forward(ctx, img);
-            int64_t num_heads = img_q->ne[0] / dim_head;
-            img_q             = ggml_reshape_4d(ctx->ggml_ctx, img_q, dim_head, num_heads, n_img_token, N);  // [N, n_img_token, n_head, d_head]
-            auto img_k        = to_k->forward(ctx, img);
-            img_k             = ggml_reshape_4d(ctx->ggml_ctx, img_k, dim_head, num_heads, n_img_token, N);  // [N, n_img_token, n_head, d_head]
-            auto img_v        = to_v->forward(ctx, img);
-            img_v             = ggml_reshape_4d(ctx->ggml_ctx, img_v, dim_head, num_heads, n_img_token, N);  // [N, n_img_token, n_head, d_head]
+            struct ggml_tensor* q       = nullptr;
+            struct ggml_tensor* k       = nullptr;
+            struct ggml_tensor* v       = nullptr;
 
-            img_q = norm_q->forward(ctx, img_q);
-            img_k = norm_k->forward(ctx, img_k);
+            if (fused_qkv) {
+                auto to_qkv     = std::dynamic_pointer_cast<Linear>(blocks["to_qkv"]);
+                auto add_qkv_proj = std::dynamic_pointer_cast<Linear>(blocks["add_qkv_proj"]);
 
-            auto txt_q = add_q_proj->forward(ctx, txt);
-            txt_q      = ggml_reshape_4d(ctx->ggml_ctx, txt_q, dim_head, num_heads, n_txt_token, N);  // [N, n_txt_token, n_head, d_head]
-            auto txt_k = add_k_proj->forward(ctx, txt);
-            txt_k      = ggml_reshape_4d(ctx->ggml_ctx, txt_k, dim_head, num_heads, n_txt_token, N);  // [N, n_txt_token, n_head, d_head]
-            auto txt_v = add_v_proj->forward(ctx, txt);
-            txt_v      = ggml_reshape_4d(ctx->ggml_ctx, txt_v, dim_head, num_heads, n_txt_token, N);  // [N, n_txt_token, n_head, d_head]
+                auto img_qkv  = to_qkv->forward(ctx, img);
+                auto img_q    = ggml_view_4d(ctx->ggml_ctx, img_qkv, dim_head, img_qkv->ne[0]/3/dim_head, n_img_token, N,
+                                         img_qkv->nb[0]*dim_head, img_qkv->nb[1], img_qkv->nb[2], 0);
+                auto img_k    = ggml_view_4d(ctx->ggml_ctx, img_qkv, dim_head, img_qkv->ne[0]/3/dim_head, n_img_token, N,
+                                         img_qkv->nb[0]*dim_head, img_qkv->nb[1], img_qkv->nb[2], (img_qkv->nb[0])*img_qkv->ne[0]/3);
+                auto img_v    = ggml_view_4d(ctx->ggml_ctx, img_qkv, dim_head, img_qkv->ne[0]/3/dim_head, n_img_token, N,
+                                         img_qkv->nb[0]*dim_head, img_qkv->nb[1], img_qkv->nb[2], (img_qkv->nb[0])*2*img_qkv->ne[0]/3);
 
-            txt_q = norm_added_q->forward(ctx, txt_q);
-            txt_k = norm_added_k->forward(ctx, txt_k);
+                img_q = norm_q->forward(ctx, img_q);
+                img_k = norm_k->forward(ctx, img_k);
 
-            auto q = ggml_concat(ctx->ggml_ctx, txt_q, img_q, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
-            auto k = ggml_concat(ctx->ggml_ctx, txt_k, img_k, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
-            auto v = ggml_concat(ctx->ggml_ctx, txt_v, img_v, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
+                auto txt_qkv = add_qkv_proj->forward(ctx, txt);
+                auto txt_q    = ggml_view_4d(ctx->ggml_ctx, txt_qkv, dim_head, txt_qkv->ne[0]/3/dim_head, n_txt_token, N,
+                                         txt_qkv->nb[0]*dim_head, txt_qkv->nb[1], txt_qkv->nb[2], 0);
+                auto txt_k    = ggml_view_4d(ctx->ggml_ctx, txt_qkv, dim_head, txt_qkv->ne[0]/3/dim_head, n_txt_token, N,
+                                         txt_qkv->nb[0]*dim_head, txt_qkv->nb[1], txt_qkv->nb[2], (txt_qkv->nb[0])*txt_qkv->ne[0]/3);
+                auto txt_v    = ggml_view_4d(ctx->ggml_ctx, txt_qkv, dim_head, txt_qkv->ne[0]/3/dim_head, n_txt_token, N,
+                                         txt_qkv->nb[0]*dim_head, txt_qkv->nb[1], txt_qkv->nb[2], (txt_qkv->nb[0])*2*txt_qkv->ne[0]/3);
+
+                txt_q = norm_added_q->forward(ctx, txt_q);
+                txt_k = norm_added_k->forward(ctx, txt_k);
+
+                q = ggml_concat(ctx->ggml_ctx, txt_q, img_q, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
+                k = ggml_concat(ctx->ggml_ctx, txt_k, img_k, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
+                v = ggml_concat(ctx->ggml_ctx, txt_v, img_v, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
+
+            } else {
+                auto to_q     = std::dynamic_pointer_cast<Linear>(blocks["to_q"]);
+                auto to_k     = std::dynamic_pointer_cast<Linear>(blocks["to_k"]);
+                auto to_v     = std::dynamic_pointer_cast<Linear>(blocks["to_v"]);
+                auto add_q_proj = std::dynamic_pointer_cast<Linear>(blocks["add_q_proj"]);
+                auto add_k_proj = std::dynamic_pointer_cast<Linear>(blocks["add_k_proj"]);
+                auto add_v_proj = std::dynamic_pointer_cast<Linear>(blocks["add_v_proj"]);
+
+                auto img_q        = to_q->forward(ctx, img);
+                // int64_t num_heads = img_q->ne[0] / dim_head;
+                img_q             = ggml_reshape_4d(ctx->ggml_ctx, img_q, dim_head, num_heads, n_img_token, N);  // [N, n_img_token, n_head, d_head]
+                auto img_k        = to_k->forward(ctx, img);
+                img_k             = ggml_reshape_4d(ctx->ggml_ctx, img_k, dim_head, num_heads, n_img_token, N);  // [N, n_img_token, n_head, d_head]
+                auto img_v        = to_v->forward(ctx, img);
+                img_v             = ggml_reshape_4d(ctx->ggml_ctx, img_v, dim_head, num_heads, n_img_token, N);  // [N, n_img_token, n_head, d_head]
+
+                img_q = norm_q->forward(ctx, img_q);
+                img_k = norm_k->forward(ctx, img_k);
+
+                auto txt_q = add_q_proj->forward(ctx, txt);
+                txt_q      = ggml_reshape_4d(ctx->ggml_ctx, txt_q, dim_head, num_heads, n_txt_token, N);  // [N, n_txt_token, n_head, d_head]
+                auto txt_k = add_k_proj->forward(ctx, txt);
+                txt_k      = ggml_reshape_4d(ctx->ggml_ctx, txt_k, dim_head, num_heads, n_txt_token, N);  // [N, n_txt_token, n_head, d_head]
+                auto txt_v = add_v_proj->forward(ctx, txt);
+                txt_v      = ggml_reshape_4d(ctx->ggml_ctx, txt_v, dim_head, num_heads, n_txt_token, N);  // [N, n_txt_token, n_head, d_head]
+
+                txt_q = norm_added_q->forward(ctx, txt_q);
+                txt_k = norm_added_k->forward(ctx, txt_k);
+
+                q = ggml_concat(ctx->ggml_ctx, txt_q, img_q, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
+                k = ggml_concat(ctx->ggml_ctx, txt_k, img_k, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
+                v = ggml_concat(ctx->ggml_ctx, txt_v, img_v, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
+            }
+
 
             // auto attn         = Rope::attention(ctx, q, k, v, pe, mask, (1.0f / 128.f));  // [N, n_txt_token + n_img_token, n_head*d_head]
             auto attn         = Rope::attention_2(ctx, q, k, v, pe, mask, par, (1.0f / 128.f));  // [N, n_txt_token + n_img_token, n_head*d_head]
@@ -195,12 +244,14 @@ namespace Qwen {
     protected:
         bool zero_cond_t;
 
+
     public:
         QwenImageTransformerBlock(int64_t dim,
                                   int64_t num_attention_heads,
                                   int64_t attention_head_dim,
                                   float eps        = 1e-6,
-                                  bool zero_cond_t = false)
+                                  bool zero_cond_t = false,
+                                  bool fused_attn_qkv = false)
             : zero_cond_t(zero_cond_t) {
             // img_mod.0 is nn.SiLU()
             blocks["img_mod.1"] = std::shared_ptr<GGMLBlock>(new Linear(dim, 6 * dim, true));
@@ -223,6 +274,7 @@ namespace Qwen {
                                                                                0,     // out_context-dim
                                                                                true,  // bias
                                                                                true,  // out_bias
+                                                                               fused_attn_qkv,
                                                                                eps));
         }
 
@@ -364,6 +416,7 @@ namespace Qwen {
         std::vector<int> axes_dim = {8, 28, 28};
         int axes_dim_sum            = 128;
         bool zero_cond_t            = false;
+        bool fused_attn_qkv         = false;
     };
 
     class QwenImageModel : public GGMLBlock {
@@ -386,7 +439,8 @@ namespace Qwen {
                                                                                                                              params.num_attention_heads,
                                                                                                                              params.attention_head_dim,
                                                                                                                              1e-6f,
-                                                                                                                             params.zero_cond_t));
+                                                                                                                             params.zero_cond_t,
+                                                                                                                             params.fused_attn_qkv));
                 blocks["transformer_blocks." + std::to_string(i)] = block;
             }
 
@@ -583,10 +637,12 @@ namespace Qwen {
                         const String2TensorStorage& tensor_storage_map = {},
                         const std::string prefix                       = "",
                         SDVersion version                              = VERSION_QWEN_IMAGE,
-                        bool zero_cond_t                               = false)
+                        bool zero_cond_t                               = false,
+                        bool fa_qkv                                    = false)
             : GGMLRunner(backend, offload_params_to_cpu) {
             qwen_image_params.num_layers  = 0;
             qwen_image_params.zero_cond_t = zero_cond_t;
+            qwen_image_params.fused_attn_qkv = fa_qkv;
             for (auto pair : tensor_storage_map) {
                 std::string tensor_name = pair.first;
                 if (tensor_name.find(prefix) == std::string::npos)
