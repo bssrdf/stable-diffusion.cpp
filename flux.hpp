@@ -103,11 +103,18 @@ namespace Flux {
             auto norm     = std::dynamic_pointer_cast<QKNorm>(blocks["norm"]);
 
             auto qkv         = qkv_proj->forward(ctx, x);
-            auto qkv_vec     = ggml_ext_chunk(ctx->ggml_ctx, qkv, 3, 0, true);
-            int64_t head_dim = qkv_vec[0]->ne[0] / num_heads;
-            auto q           = ggml_reshape_4d(ctx->ggml_ctx, qkv_vec[0], head_dim, num_heads, qkv_vec[0]->ne[1], qkv_vec[0]->ne[2]);
-            auto k           = ggml_reshape_4d(ctx->ggml_ctx, qkv_vec[1], head_dim, num_heads, qkv_vec[1]->ne[1], qkv_vec[1]->ne[2]);
-            auto v           = ggml_reshape_4d(ctx->ggml_ctx, qkv_vec[2], head_dim, num_heads, qkv_vec[2]->ne[1], qkv_vec[2]->ne[2]);
+            int64_t head_dim = qkv->ne[0] / 3 / num_heads;
+            auto q           = ggml_view_4d(ctx->ggml_ctx, qkv, head_dim, num_heads, qkv->ne[1], qkv->ne[2],
+                                            qkv->nb[0]*head_dim, qkv->nb[1], qkv->nb[2], 0);
+            auto k           = ggml_view_4d(ctx->ggml_ctx, qkv, head_dim, num_heads, qkv->ne[1], qkv->ne[2],
+                                            qkv->nb[0]*head_dim, qkv->nb[1], qkv->nb[2], (qkv->nb[0])*qkv->ne[0]/3);
+            auto v           = ggml_view_4d(ctx->ggml_ctx, qkv, head_dim, num_heads, qkv->ne[1], qkv->ne[2],
+                                            qkv->nb[0]*head_dim, qkv->nb[1], qkv->nb[2], (qkv->nb[0])*2*qkv->ne[0]/3);
+            // auto qkv_vec     = ggml_ext_chunk(ctx->ggml_ctx, qkv, 3, 0, true);
+            // int64_t head_dim = qkv_vec[0]->ne[0] / num_heads;
+            // auto q           = ggml_reshape_4d(ctx->ggml_ctx, qkv_vec[0], head_dim, num_heads, qkv_vec[0]->ne[1], qkv_vec[0]->ne[2]);
+            // auto k           = ggml_reshape_4d(ctx->ggml_ctx, qkv_vec[1], head_dim, num_heads, qkv_vec[1]->ne[1], qkv_vec[1]->ne[2]);
+            // auto v           = ggml_reshape_4d(ctx->ggml_ctx, qkv_vec[2], head_dim, num_heads, qkv_vec[2]->ne[1], qkv_vec[2]->ne[2]);
             q                = norm->query_norm(ctx, q);
             k                = norm->key_norm(ctx, k);
             return {q, k, v};
