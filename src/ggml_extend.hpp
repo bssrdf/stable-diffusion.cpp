@@ -1603,6 +1603,21 @@ struct WeightAdapter {
     virtual size_t get_extra_graph_size()                                                                     = 0;
 };
 
+struct GGMLGraphResult {
+    struct ggml_cgraph* graph;
+    GGMLGraphResult()        : graph(nullptr) {}
+
+    void reset(){
+        graph = nullptr;
+    }
+
+    bool can_reuse () const{
+        return graph != nullptr;
+    }
+};
+
+using GGMLGraphResultPtr = std::unique_ptr<GGMLGraphResult>;
+
 struct GGMLRunnerContext {
     ggml_backend_t backend                        = nullptr;
     ggml_context* ggml_ctx                        = nullptr;
@@ -1637,11 +1652,14 @@ protected:
     std::vector<float> one_vec = {1.f};
     ggml_tensor* one_tensor    = nullptr;
 
+    GGMLGraphResultPtr gf_res_prev;
+
     std::vector<int> zero_int_vec = {0};
     ggml_tensor* zero_int_tensor  = nullptr;
 
     std::map<struct ggml_tensor*, const void*> backend_tensor_data_map;
     std::map<std::string, struct ggml_tensor*> cache_tensor_map;  // name -> tensor
+    std::map<std::string, struct ggml_tensor*> input_tensor_map;  // name -> tensor
     const std::string final_result_name = "ggml_runner_final_result_tensor";
 
     bool flash_attn_enabled    = false;
@@ -1901,6 +1919,7 @@ public:
     GGMLRunner(ggml_backend_t backend, bool offload_params_to_cpu = false)
         : runtime_backend(backend) {
         alloc_params_ctx();
+        gf_res_prev.reset(new GGMLGraphResult());
         if (!ggml_backend_is_cpu(runtime_backend) && offload_params_to_cpu) {
             params_backend = ggml_backend_cpu_init();
         } else {
@@ -2007,6 +2026,14 @@ public:
         cache_tensor_map[name] = tensor;
     }
 
+    void set_input_tensor(const std::string name, struct ggml_tensor* tensor) {
+        input_tensor_map[name] = tensor;
+    }
+
+    struct ggml_tensor* get_input_tensor(const std::string& name) {
+        return input_tensor_map[name];
+    }
+
     struct ggml_tensor* get_cache_tensor_by_name(const std::string& name) {
         if (cache_ctx == nullptr) {
             return nullptr;
@@ -2018,20 +2045,30 @@ public:
                  int n_threads,
                  bool free_compute_buffer_immediately = true,
                  struct ggml_tensor** output          = nullptr,
-                 struct ggml_context* output_ctx      = nullptr) {
-        if (!offload_params_to_runtime_backend()) {
-            LOG_ERROR("%s offload params to runtime backend failed", get_desc().c_str());
-            return false;
-        }
-        if (!alloc_compute_buffer(get_graph)) {
-            LOG_ERROR("%s alloc compute buffer failed", get_desc().c_str());
-            return false;
-        }
-        reset_compute_ctx();
-        struct ggml_cgraph* gf = get_compute_graph(get_graph);
-        if (!ggml_gallocr_alloc_graph(compute_allocr, gf)) {
-            LOG_ERROR("%s alloc compute graph failed", get_desc().c_str());
-            return false;
+                 struct ggml_context* output_ctx      = nullptr,
+                 bool reuse_cgraph = false) {
+        struct ggml_cgraph* gf = nullptr;
+        if (!free_compute_buffer_immediately && reuse_cgraph) {
+            gf = gf_res_prev->graph;
+            GGML_ASSERT(gf != nullptr);
+        } else {
+            gf_res_prev->reset();
+            input_tensor_map.clear();
+            if (!offload_params_to_runtime_backend()) {
+                LOG_ERROR("%s offload params to runtime backend failed", get_desc().c_str());
+                return false;
+            }
+            if (!alloc_compute_buffer(get_graph)) {
+                LOG_ERROR("%s alloc compute buffer failed", get_desc().c_str());
+                return false;
+            }
+            reset_compute_ctx();
+            gf = get_compute_graph(get_graph);
+            gf_res_prev->graph = gf;
+            if (!ggml_gallocr_alloc_graph(compute_allocr, gf)) {
+                LOG_ERROR("%s alloc compute graph failed", get_desc().c_str());
+                return false;
+            }
         }
         copy_data_to_backend_tensor();
         if (ggml_backend_is_cpu(runtime_backend)) {
@@ -2061,6 +2098,10 @@ public:
             free_compute_buffer();
         }
         return true;
+    }
+
+    bool can_reuse_cgraph() const {
+        return gf_res_prev->can_reuse();
     }
 
     void set_flash_attention_enabled(bool enabled) {

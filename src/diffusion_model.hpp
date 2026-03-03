@@ -24,9 +24,76 @@ struct DiffusionParams {
     struct ggml_tensor* vace_context          = nullptr;
     float vace_strength                       = 1.f;
     std::vector<int> skip_layers              = {};
+    bool reuse_ggml_cgraph                    = false;
+
+    DiffusionParams& operator=(const DiffusionParams& other) {
+        if (this == &other) return *this;
+        x = other.x;
+        timesteps = other.timesteps;
+        context = other.context;
+        c_concat = other.c_concat;
+        y = other.y;
+        guidance = other.guidance;
+        ref_latents = other.ref_latents;
+        increase_ref_index = other.increase_ref_index;
+        num_video_frames = other.num_video_frames;
+        controls = other.controls;
+        control_strength = other.control_strength;
+        vace_context = other.vace_context;
+        vace_strength = other.vace_strength;
+        skip_layers = other.skip_layers;
+        reuse_ggml_cgraph = other.reuse_ggml_cgraph;
+        return *this;
+    }
+
+    bool operator==(const DiffusionParams &other) const {
+        if (x != nullptr && other.x != nullptr && !ggml_are_same_shape(x, other.x)) {
+            return false;
+        }
+        if (timesteps != nullptr && other.timesteps != nullptr && !ggml_are_same_shape(timesteps, other.timesteps)) {
+            return false;
+        }
+        if (context != nullptr && other.context != nullptr && !ggml_are_same_shape(context, other.context)) {
+            return false;
+        }
+        if (c_concat != nullptr && other.c_concat != nullptr && !ggml_are_same_shape(c_concat, other.c_concat)) {
+            return false;
+        }
+        if (y != nullptr && other.y != nullptr && !ggml_are_same_shape(y, other.y)) {
+            return false;
+        }
+        if (guidance != nullptr && other.guidance != nullptr && !ggml_are_same_shape(guidance, other.guidance)) {
+            return false;
+        }
+        if (ref_latents.size() != other.ref_latents.size()) return false;
+        if (ref_latents.size() > 0) {
+            for (size_t i = 0; i < ref_latents.size(); i++) {
+                if (ref_latents[i] != nullptr && other.ref_latents[i] != nullptr && !ggml_are_same_shape(ref_latents[i], other.ref_latents[i])) {
+                    return false;
+                }
+            }
+        }
+        if (increase_ref_index != other.increase_ref_index) return false;
+        if (num_video_frames != other.num_video_frames) return false;
+        if (controls.size() != other.controls.size()) return false;
+        for (size_t i = 0; i < controls.size(); i++) {
+            if (controls[i] != nullptr && other.controls[i] != nullptr && !ggml_are_same_shape(controls[i], other.controls[i])) {
+                return false;
+            }
+        }
+        if (vace_context != nullptr && other.vace_context != nullptr && !ggml_are_same_shape(vace_context, other.vace_context)) {
+            return false;
+        }
+        if (skip_layers.size() != other.skip_layers.size()) return false;
+        for (size_t i = 0; i < skip_layers.size(); i++) {
+            if (skip_layers[i] != other.skip_layers[i]) return false;
+        }
+        return true;
+    }
 };
 
 struct DiffusionModel {
+    DiffusionParams params;
     virtual std::string get_desc()                                                      = 0;
     virtual bool compute(int n_threads,
                          DiffusionParams diffusion_params,
@@ -41,6 +108,9 @@ struct DiffusionModel {
     virtual int64_t get_adm_in_channels()                            = 0;
     virtual void set_flash_attention_enabled(bool enabled)           = 0;
     virtual void set_circular_axes(bool circular_x, bool circular_y) = 0;
+    void set_params(const DiffusionParams & params) {
+        this->params = params;
+    }
 };
 
 struct UNetModel : public DiffusionModel {
@@ -228,18 +298,41 @@ struct FluxModel : public DiffusionModel {
                  DiffusionParams diffusion_params,
                  struct ggml_tensor** output     = nullptr,
                  struct ggml_context* output_ctx = nullptr) override {
-        return flux.compute(n_threads,
-                            diffusion_params.x,
-                            diffusion_params.timesteps,
-                            diffusion_params.context,
-                            diffusion_params.c_concat,
-                            diffusion_params.y,
-                            diffusion_params.guidance,
-                            diffusion_params.ref_latents,
-                            diffusion_params.increase_ref_index,
-                            output,
-                            output_ctx,
-                            diffusion_params.skip_layers);
+
+        // printf(" %d, %d, %d \n", diffusion_params.reuse_ggml_cgraph?1:0,
+        //     flux.can_reuse_cgraph()?1:0,
+        //     params == diffusion_params?1:0);
+
+        if(diffusion_params.reuse_ggml_cgraph && flux.can_reuse_cgraph() && params == diffusion_params) {
+            // LOG_DEBUG("reusing ggml cgraph for flux model");
+            return flux.compute(n_threads,
+                                diffusion_params.x,
+                                diffusion_params.timesteps,
+                                diffusion_params.context,
+                                diffusion_params.c_concat,
+                                diffusion_params.y,
+                                diffusion_params.guidance,
+                                diffusion_params.ref_latents,
+                                diffusion_params.increase_ref_index,
+                                output,
+                                output_ctx,
+                                diffusion_params.skip_layers, true);
+        } else {
+            // LOG_DEBUG("creat new ggml cgraph for flux model");
+            set_params(diffusion_params);
+            return flux.compute(n_threads,
+                                diffusion_params.x,
+                                diffusion_params.timesteps,
+                                diffusion_params.context,
+                                diffusion_params.c_concat,
+                                diffusion_params.y,
+                                diffusion_params.guidance,
+                                diffusion_params.ref_latents,
+                                diffusion_params.increase_ref_index,
+                                output,
+                                output_ctx,
+                                diffusion_params.skip_layers, false);
+        }
     }
 };
 

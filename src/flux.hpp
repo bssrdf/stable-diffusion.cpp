@@ -1368,9 +1368,12 @@ namespace Flux {
             struct ggml_tensor* dct              = nullptr;  // for chroma radiance
 
             x       = to_backend(x);
+            set_input_tensor(std::string("input_x"), x);
             context = to_backend(context);
+            set_input_tensor(std::string("input_context"), context);
             if (c_concat != nullptr) {
                 c_concat = to_backend(c_concat);
+                set_input_tensor(std::string("input_c_concat"), c_concat);
             }
             if (flux_params.is_chroma) {
                 guidance = ggml_set_f32(guidance, 0);
@@ -1385,13 +1388,17 @@ namespace Flux {
                 set_backend_tensor_data(mod_index_arange, mod_index_arange_vec.data());
             }
             y = to_backend(y);
+            set_input_tensor(std::string("input_y"), y);
 
             timesteps = to_backend(timesteps);
+            set_input_tensor(std::string("input_timesteps"), timesteps);
             if (flux_params.guidance_embed || flux_params.is_chroma) {
                 guidance = to_backend(guidance);
+                set_input_tensor(std::string("input_guidance"), guidance);
             }
             for (int i = 0; i < ref_latents.size(); i++) {
                 ref_latents[i] = to_backend(ref_latents[i]);
+                set_input_tensor(std::string("input_ref_latents_") + std::to_string(i), ref_latents[i]);
             }
 
             std::set<int> txt_arange_dims;
@@ -1422,6 +1429,7 @@ namespace Flux {
             // print_ggml_tensor(pe);
             // pe->data = nullptr;
             set_backend_tensor_data(pe, pe_vec.data());
+            set_input_tensor(std::string("input_pe"), pe);
 
             if (version == VERSION_CHROMA_RADIANCE) {
                 int patch_size     = flux_params.patch_size;
@@ -1432,6 +1440,7 @@ namespace Flux {
                 // print_ggml_tensor(dct);
                 // dct->data = nullptr;
                 set_backend_tensor_data(dct, dct_vec.data());
+                set_input_tensor(std::string("input_dct"), dct);
             }
 
             auto runner_ctx = get_context();
@@ -1465,7 +1474,8 @@ namespace Flux {
                      bool increase_ref_index               = false,
                      struct ggml_tensor** output           = nullptr,
                      struct ggml_context* output_ctx       = nullptr,
-                     std::vector<int> skip_layers          = std::vector<int>()) {
+                     std::vector<int> skip_layers          = std::vector<int>(),
+                     bool reuse_graph                      = false) {
             // x: [N, in_channels, h, w]
             // timesteps: [N, ]
             // context: [N, max_position, hidden_size]
@@ -1475,7 +1485,28 @@ namespace Flux {
                 return build_graph(x, timesteps, context, c_concat, y, guidance, ref_latents, increase_ref_index, skip_layers);
             };
 
-            return GGMLRunner::compute(get_graph, n_threads, false, output, output_ctx);
+            if(reuse_graph) {
+                set_backend_tensor_data(get_input_tensor("input_x"), x->data);
+                set_backend_tensor_data(get_input_tensor("input_timesteps"), timesteps->data);
+                set_backend_tensor_data(get_input_tensor("input_context"), context->data);
+                if (c_concat != nullptr) {
+                    set_backend_tensor_data(get_input_tensor("input_c_concat"), c_concat->data);
+                }
+                set_backend_tensor_data(get_input_tensor("input_y"), y->data);
+                if (flux_params.guidance_embed || flux_params.is_chroma) {
+                    set_backend_tensor_data(get_input_tensor("input_guidance"), guidance->data);
+                }
+                for (int i = 0; i < ref_latents.size(); i++) {
+                    set_backend_tensor_data(get_input_tensor(std::string("input_ref_latents_") + std::to_string(i)), ref_latents[i]->data);
+                }
+                set_backend_tensor_data(get_input_tensor("input_pe"), pe_vec.data());
+                if (version == VERSION_CHROMA_RADIANCE) {
+                    set_backend_tensor_data(get_input_tensor("input_dct"), dct_vec.data());
+                }
+                return GGMLRunner::compute(get_graph, n_threads, false, output, output_ctx, true);
+            } else {
+                return GGMLRunner::compute(get_graph, n_threads, false, output, output_ctx, false);
+            }
         }
 
         void test() {
