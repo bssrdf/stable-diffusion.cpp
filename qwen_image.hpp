@@ -111,10 +111,12 @@ namespace Qwen {
 #endif
             // The purpose of the scale here is to prevent NaN issues in certain situations.
             // For example when using CUDA but the weights are k-quants (not all prompts).
-            blocks["to_out.0"] = std::shared_ptr<GGMLBlock>(new Linear(inner_dim, out_dim, out_bias, false, force_prec_f32, scale));
+            // blocks["to_out.0"] = std::shared_ptr<GGMLBlock>(new Linear(inner_dim, out_dim, out_bias, false, force_prec_f32, scale));
+            blocks["to_out.0"] = std::shared_ptr<GGMLBlock>(new Linear(inner_dim, out_dim, out_bias, false, force_prec_f32));
             // to_out.1 is nn.Dropout
 
-            blocks["to_add_out"] = std::shared_ptr<GGMLBlock>(new Linear(inner_dim, out_context_dim, out_bias, false, false, scale));
+            // blocks["to_add_out"] = std::shared_ptr<GGMLBlock>(new Linear(inner_dim, out_context_dim, out_bias, false, false, scale));
+            blocks["to_add_out"] = std::shared_ptr<GGMLBlock>(new Linear(inner_dim, out_context_dim, out_bias, false, false));
         }
 
         std::pair<ggml_tensor*, ggml_tensor*> forward(GGMLRunnerContext* ctx,
@@ -230,8 +232,8 @@ namespace Qwen {
                                              attn->nb[1],
                                              attn->nb[2],
                                              txt->ne[1] * attn->nb[1]);  // [N, n_img_token, n_head*d_head]
-            img_attn_out      = ggml_cont(ctx->ggml_ctx, img_attn_out);
-            txt_attn_out      = ggml_cont(ctx->ggml_ctx, txt_attn_out);
+            // img_attn_out      = ggml_cont(ctx->ggml_ctx, img_attn_out);
+            // txt_attn_out      = ggml_cont(ctx->ggml_ctx, txt_attn_out);
 
             img_attn_out = to_out_0->forward(ctx, img_attn_out);
             txt_attn_out = to_add_out->forward(ctx, txt_attn_out);
