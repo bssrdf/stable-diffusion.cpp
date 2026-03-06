@@ -603,6 +603,9 @@ namespace Qwen {
             // if(pe->type != GGML_TYPE_BF16){
             //     pe = ggml_cast(ctx->ggml_ctx, pe, GGML_TYPE_BF16);
             // }
+            if(modulate_index != nullptr && modulate_index->type != GGML_TYPE_BF16){
+                modulate_index = ggml_cast(ctx->ggml_ctx, modulate_index, GGML_TYPE_BF16);
+            }
 
             int64_t h_len = ((H + (params.patch_size / 2)) / params.patch_size);
             int64_t w_len = ((W + (params.patch_size / 2)) / params.patch_size);
